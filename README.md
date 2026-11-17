@@ -20,6 +20,7 @@ This project enables the Raspberry Pi Pico2W (or other compatible board, e.g. th
 - 📡 Wireless Bluetooth bridging
 - 🔘 BOOTSEL-button controller management — pair, reboot, enter BOOTSEL for flashing, or forget all pairings without unplugging
 - ⚡ Runs at the stock 150 MHz clock — no overclock required
+- 🖱️ Optional touchpad mouse, and buttons remappable to mouse clicks
 
 ## Getting Started
 
@@ -294,6 +295,30 @@ The web config's Remap page has matching **Base / Layer 1 / Layer 2 / Layer 3** 
 the hold buttons picked in each layer tab. Layers 1 and 2 use feature report `0xFC`; layer 3
 uses `0xFD`. Details are in [docs/button-layer.md](docs/button-layer.md).
 
+## Touchpad mouse
+
+The controller touchpad can move the computer's mouse cursor, and any button can be remapped
+to a mouse click.
+
+- **Touchpad mouse**: `0` off (default), `1` on, or `2` on with touches hidden from the game.
+  One finger moves the cursor, with mild acceleration. Sensitivity is `1`–`20` (default `8`).
+- **Mouse buttons**: Mouse Left, Right, Middle, Back and Forward are remap targets, in the base
+  remap and in every layer.
+- **Toggle**: the `toggle_touchpad_mouse` shortcut action pauses and resumes the touchpad mouse
+  until the next reboot.
+
+```sh
+python tools/config_tool.py set touchpad_mouse=1 touchpad_sensitivity=10
+python tools/config_tool.py remap r1=mouseleft l1=mouseright
+python tools/config_tool.py shortcut 7=Pad*2:toggle_touchpad_mouse
+```
+
+Mouse reports share the media-key HID interface (Report ID 3), which is only enumerated when
+something needs it. **Reconnect USB** after turning the touchpad mouse on or off, and after
+saving the first mouse-button remap. In the web config, the settings are in the **Touchpad
+mouse** section of the General page and in the **Mouse** group of the Remap page's output list.
+Details are in [docs/touchpad-mouse.md](docs/touchpad-mouse.md).
+
 ## Custom button chords
 
 The Button settings support up to 9 custom shortcut mappings. Each mapping assigns a
@@ -328,7 +353,7 @@ Actions:
 
 - **Keyboard** — modifiers plus one key, such as `Win+Shift+S`, `Win+PrintScreen`, `Win+G`, or `F13`. Raw HID usage IDs such as `0x16` are also accepted.
 - **Media** — `VolumeUp`, `VolumeDown`, `Mute`, `PlayPause`, `Next`, `Prev`, `Stop`, `BrightnessUp`, or `BrightnessDown`. These use the Consumer Control HID interface and take no modifiers.
-- **Firmware** — `bt_disconnect` disconnects the currently connected controller.
+- **Firmware** — `bt_disconnect` disconnects the currently connected controller. `toggle_touchpad_mouse` pauses or resumes the [touchpad mouse](#touchpad-mouse).
 
 Set `enable_keyboard=1` and reconnect USB to enable keyboard and media actions. Firmware
 actions do not require the USB HID interfaces.
