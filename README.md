@@ -262,35 +262,37 @@ Use `tools/build-macos.sh --clean` to rebuild from scratch, or
 to the required Pico SDK and TinyUSB versions. If Homebrew's `arm-none-eabi-gcc` formula is installed without standard C
 headers, the script asks to install the complete `gcc-arm-embedded` cask and points CMake at that toolchain.
 
-## Button layer
+## Button layers
 
-Layer buttons work like keyboard modifiers. There are two layer buttons, A and B (for
-example the two DualSense Edge back paddles), and three extra remap tables:
+Layer buttons work like keyboard modifiers. There are three extra remap tables, **Layer 1**,
+**Layer 2** and **Layer 3**, and each has its own set of hold buttons: one button or any
+combination. A layer applies while exactly its hold buttons are held. For example:
 
-- **Layer A** applies while only A is held.
-- **Layer B** applies while only B is held.
-- **Layer A + B** applies while both are held. It is its own table; it is not A and B merged.
+- **Layer 1**: hold the left paddle.
+- **Layer 2**: hold the right paddle.
+- **Layer 3**: hold both paddles. Only layer 3 applies then; it is not layers 1 and 2 merged.
 
-For example, hold the left paddle and press Triangle, Cross, Square or Circle to get D-pad
-Up, Down, Left or Right.
+With layer 1 set up as below, hold the left paddle and press Triangle, Cross, Square or Circle
+to get D-pad Up, Down, Left or Right.
 
 ```sh
-python tools/config_tool.py layer buttons=LeftPaddle,RightPaddle
-python tools/config_tool.py layer --layer a --face-dpad
-python tools/config_tool.py layer --layer b cross=l1
-python tools/config_tool.py layer --layer ab cross=r3
+python tools/config_tool.py layer --layer 1 hold=LeftPaddle --face-dpad
+python tools/config_tool.py layer --layer 2 hold=RightPaddle cross=l1
+python tools/config_tool.py layer --layer 3 hold=LeftPaddle,RightPaddle cross=r3
 python tools/config_tool.py layer --reset
 ```
 
-- Layer buttons are hidden from the game while they are enabled.
-- A button keeps the layer it was pressed in until it is released, even if the layer buttons
+- Every hold button of every layer is hidden from the game. Using L1 in a hold set, for
+  example, means the game never sees L1.
+- Two layers cannot share the same hold set.
+- A button keeps the layer it was pressed in until it is released, even if the held buttons
   change first.
 - Layer entries left unmapped use the base remap.
 - D-pad outputs combine into diagonals; opposite directions cancel.
 
-The web config's Remap page has matching **Base / Layer A / Layer B / A + B** tabs. Layer A
-uses feature report `0xFC`; layer B and A + B use `0xFD`. Details are in
-[docs/button-layer.md](docs/button-layer.md).
+The web config's Remap page has matching **Base / Layer 1 / Layer 2 / Layer 3** tabs, with
+the hold buttons picked in each layer tab. Layers 1 and 2 use feature report `0xFC`; layer 3
+uses `0xFD`. Details are in [docs/button-layer.md](docs/button-layer.md).
 
 ## Custom button chords
 
