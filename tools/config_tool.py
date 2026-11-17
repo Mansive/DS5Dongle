@@ -7,7 +7,8 @@ Protocol (see src/cmd.cpp / src/config.h):
   GET feature report 0xF8 -> firmware version string
   GET/SET feature report 0xFA -> button remap table (28 bytes)
   GET/SET feature report 0xFB -> shortcut slots (63 bytes)
-  GET/SET feature report 0xFC -> button layer: modifier + remap table (29 bytes)
+  GET/SET feature report 0xFC -> layer button A + table A (29 bytes)
+  GET/SET feature report 0xFD -> layer button B + table B + table A+B (57 bytes)
   SET feature report 0xF6:
       funcid 0x01 + body   -> update config in RAM (firmware clamps invalid values)
       funcid 0x02          -> persist config to flash
@@ -28,7 +29,9 @@ Examples:
   python config_tool.py remap square=nomap  # clear (restore identity mapping)
   python config_tool.py remap --reset       # reset all button remaps
   python config_tool.py layer
-  python config_tool.py layer modifier=LeftPaddle --face-dpad
+  python config_tool.py layer buttons=LeftPaddle,RightPaddle
+  python config_tool.py layer --layer a --face-dpad
+  python config_tool.py layer --layer ab cross=r3
   python config_tool.py layer --reset
   python config_tool.py shortcut
   python config_tool.py shortcut 1=L1+R1:Ctrl+Shift+S
@@ -66,7 +69,8 @@ REPORT_GET_CONFIG = 0xF7  # GET_REPORT: read Config_body
 REPORT_GET_VERSION = 0xF8  # GET_REPORT: firmware version string
 REPORT_REMAP = 0xFA       # GET/SET_REPORT: button remap table
 REPORT_SHORTCUT = 0xFB    # GET/SET_REPORT: shortcut slots
-REPORT_LAYER = 0xFC       # GET/SET_REPORT: button layer (modifier + remap table)
+REPORT_LAYER = 0xFC       # GET/SET_REPORT: layer button A + its table
+REPORT_LAYER2 = 0xFD      # GET/SET_REPORT: layer button B + its table + table for A and B
 
 FUNC_UPDATE = 0x01       # update config in RAM
 FUNC_SAVE = 0x02         # persist to flash
@@ -137,9 +141,16 @@ KEY_USAGE_MAX = 0x73       # src/usb_descriptors.h SHORTCUT_KEY_USAGE_MAX
 CONSUMER_USAGE_MAX = 0x2FF # src/usb_descriptors.h SHORTCUT_CONSUMER_USAGE_MAX
 SHORTCUT_STORAGE_SIZE = SHORTCUT_COUNT * SHORTCUT_SIZE
 LAYER_DISABLED = 0xFF      # src/button_remap.h BUTTON_LAYER_DISABLED
-LAYER_SIZE = 1 + BUTTON_REMAP_COUNT  # src/button_remap.h ButtonLayer: modifier + table
+LAYER_SIZE = 1 + BUTTON_REMAP_COUNT  # src/button_remap.h ButtonLayer (0xFC): button A + table A
+LAYER2_SIZE = 1 + 2 * BUTTON_REMAP_COUNT  # ButtonLayer2 (0xFD): button B + table B + table A+B
+# The tool handles both reports as one "layer set": the 0xFC payload followed
+# by the 0xFD payload. Offsets into it:
+LAYERS_SIZE = LAYER_SIZE + LAYER2_SIZE
+LAYER_BUTTON_OFFSETS = {"a": 0, "b": LAYER_SIZE}
+LAYER_TABLE_OFFSETS = {"a": 1, "b": LAYER_SIZE + 1, "ab": LAYER_SIZE + 1 + BUTTON_REMAP_COUNT}
+LAYER_TABLE_NAMES = {"a": "Layer A", "b": "Layer B", "ab": "Layers A+B"}
 LAYER_MODIFIER_IDS = range(BUTTON_NAMES.index("Square"), BUTTON_COUNT - 1)
-# --face-dpad: hold the modifier and use the face buttons as a D-pad.
+# --face-dpad: hold the layer button and use the face buttons as a D-pad.
 FACE_DPAD_PRESET = ("triangle=up", "cross=down", "square=left", "circle=right")
 if SHORTCUT_STORAGE_SIZE > SET_DATA_LEN:
     raise RuntimeError(
@@ -488,9 +499,9 @@ def cmd_get(_args):
         remap = read_remap(dev)
         shortcuts = read_shortcuts(dev)
         try:
-            layer = read_layer(dev)
+            layers, has_layer_b = read_layers(dev)
         except SystemExit:
-            layer = None  # Older firmware without report 0xFC.
+            layers = None  # Older firmware without report 0xFC.
     finally:
         dev.close()
     if version:
@@ -499,11 +510,11 @@ def cmd_get(_args):
     print_config(cfg)
     print("Button remaps:")
     print_remaps(remap)
-    print("Button layer:")
-    if layer is None:
+    print("Button layers:")
+    if layers is None:
         print("  (not supported by this firmware)")
     else:
-        print_layer(layer)
+        print_layers(layers, has_layer_b)
     print("Shortcut slots:")
     print_shortcuts(shortcuts)
 
@@ -607,76 +618,145 @@ def cmd_remap(args):
         print(f"  {BUTTON_NAMES[source]:<15} -> {button_name(target)}")
 
 
-def read_layer(dev):
-    return read_area(dev, REPORT_LAYER, LAYER_SIZE, "button layer")
+def try_read_area(dev, report_id, size):
+    """Like read_area, but returns None when the firmware lacks the report."""
+    try:
+        data = dev.get_feature_report(report_id, FEATURE_REPORT_LEN)
+    except OSError:
+        return None
+    if not data:
+        return None
+    raw = bytes(data[1:]) if data[0] == report_id else bytes(data)
+    return bytearray(raw[:size]) if len(raw) >= size else None
 
 
-def write_layer(dev, layer, save):
-    send_feature_report(
-        dev, bytes(layer), "updating button layer", report_id=REPORT_LAYER
-    )
+def read_layers(dev):
+    """Read the layer set. Returns (layers, has_layer_b); has_layer_b is False
+    on firmware without report 0xFD, where the B part is left at defaults."""
+    layers = default_layers()
+    layers[:LAYER_SIZE] = read_area(dev, REPORT_LAYER, LAYER_SIZE, "button layer")
+    layer2 = try_read_area(dev, REPORT_LAYER2, LAYER2_SIZE)
+    if layer2 is not None:
+        layers[LAYER_SIZE:] = layer2
+    return layers, layer2 is not None
+
+
+def write_layers(dev, layers, save, has_layer_b=True):
+    # 0xFC first: if A moves onto B's old button the firmware drops B, and the
+    # 0xFD write right after restores the wanted B.
+    send_feature_report(dev, bytes(layers[:LAYER_SIZE]), "updating button layer A",
+                        report_id=REPORT_LAYER)
+    if has_layer_b:
+        send_feature_report(dev, bytes(layers[LAYER_SIZE:]), "updating button layer B",
+                            report_id=REPORT_LAYER2)
     save_button_sector(dev, save)
-    return read_layer(dev)
+    return read_layers(dev)[0]
+
+
+def default_layers():
+    identity = bytes(range(BUTTON_REMAP_COUNT))
+    return bytearray([LAYER_DISABLED]) + identity + bytearray([LAYER_DISABLED]) + identity + identity
 
 
 def default_layer():
-    return bytearray([LAYER_DISABLED]) + bytearray(range(BUTTON_REMAP_COUNT))
+    """The 0xFC payload alone: layer button A off, identity table."""
+    return default_layers()[:LAYER_SIZE]
+
+
+def layer_buttons(layers):
+    return layers[LAYER_BUTTON_OFFSETS["a"]], layers[LAYER_BUTTON_OFFSETS["b"]]
+
+
+def normalize_layers(layers):
+    """Apply the firmware's button_layer_valid() rules to a layer set."""
+    layers = bytearray(layers[:LAYERS_SIZE].ljust(LAYERS_SIZE, b"\xff"))
+    for key, offset in LAYER_BUTTON_OFFSETS.items():
+        if layers[offset] != LAYER_DISABLED and layers[offset] not in LAYER_MODIFIER_IDS:
+            layers[offset] = LAYER_DISABLED
+    a, b = layer_buttons(layers)
+    if b != LAYER_DISABLED and b == a:
+        layers[LAYER_BUTTON_OFFSETS["b"]] = b = LAYER_DISABLED
+    for offset in LAYER_TABLE_OFFSETS.values():
+        for source in range(BUTTON_REMAP_COUNT):
+            if layers[offset + source] > BUTTON_COUNT - 1:
+                layers[offset + source] = source
+        for modifier in (a, b):
+            if modifier != LAYER_DISABLED:
+                layers[offset + modifier] = modifier
+    return layers
 
 
 def normalize_layer(layer):
-    """Apply the firmware's button_layer_valid() rules to a layer byte array."""
-    layer = bytearray(layer[:LAYER_SIZE].ljust(LAYER_SIZE, b"\xff"))
-    modifier = layer[0]
-    if modifier != LAYER_DISABLED and modifier not in LAYER_MODIFIER_IDS:
-        layer[0] = modifier = LAYER_DISABLED
-    for source in range(BUTTON_REMAP_COUNT):
-        if layer[1 + source] > BUTTON_COUNT - 1:
-            layer[1 + source] = source
-    if modifier != LAYER_DISABLED:
-        layer[1 + modifier] = modifier
-    return layer
+    """Normalize a 0xFC payload on its own (layer button B off)."""
+    return normalize_layers(bytes(layer[:LAYER_SIZE]).ljust(LAYER_SIZE, b"\xff") +
+                            bytes(default_layers()[LAYER_SIZE:]))[:LAYER_SIZE]
 
 
-def parse_layer_assignments(tokens, layer):
-    """Apply modifier=Button|off and source=target tokens to a layer byte array."""
-    layer = bytearray(layer)
+def parse_layer_button(value, which):
+    if normalize_button_name(value) in ("off", "none", "disable", "disabled"):
+        return LAYER_DISABLED
+    button = parse_button(value, source=True)
+    if button not in LAYER_MODIFIER_IDS:
+        sys.exit(f"'{value}' cannot be layer button {which.upper()}; pick a button "
+                 "(Square..RightPaddle), not a D-pad direction.")
+    return button
+
+
+def parse_layer_assignments(tokens, layers, table="a"):
+    """Apply layer-button and source=target tokens to a layer set.
+
+    a=Button / b=Button / buttons=A,B / modifier=Button (alias for a) set the
+    layer buttons ("off" clears one); source=target edits `table` (a, b or ab).
+    Also accepts a bare 0xFC payload, which it returns in the same shape."""
+    single = len(layers) == LAYER_SIZE
+    layers = bytearray(layers) if not single else bytearray(layers) + default_layers()[LAYER_SIZE:]
+    if table not in LAYER_TABLE_OFFSETS:
+        sys.exit(f"Unknown layer '{table}'; use a, b or ab.")
     entries = []
     for token in tokens:
         if "=" not in token:
-            sys.exit(f"Bad layer assignment '{token}', expected modifier=Button or source=target.")
+            sys.exit(f"Bad layer assignment '{token}', expected a=Button, b=Button, "
+                     "buttons=A,B or source=target.")
         name, value = (part.strip() for part in token.split("=", 1))
-        if normalize_button_name(name) == "modifier":
-            if normalize_button_name(value) in ("off", "none", "disable", "disabled"):
-                layer[0] = LAYER_DISABLED
-                continue
-            modifier = parse_button(value, source=True)
-            if modifier not in LAYER_MODIFIER_IDS:
-                sys.exit(f"'{value}' cannot be the layer modifier; pick a button "
-                         "(Square..RightPaddle), not a D-pad direction.")
-            layer[0] = modifier
+        key = normalize_button_name(name)
+        if key in ("modifier", "a"):
+            layers[LAYER_BUTTON_OFFSETS["a"]] = parse_layer_button(value, "a")
+        elif key == "b":
+            layers[LAYER_BUTTON_OFFSETS["b"]] = parse_layer_button(value, "b")
+        elif key == "buttons":
+            parts = [part.strip() for part in value.split(",")]
+            if len(parts) > 2 or not parts[0]:
+                sys.exit("buttons= takes one or two buttons, e.g. buttons=LeftPaddle,RightPaddle.")
+            parts += ["off"] * (2 - len(parts))
+            layers[LAYER_BUTTON_OFFSETS["a"]] = parse_layer_button(parts[0], "a")
+            layers[LAYER_BUTTON_OFFSETS["b"]] = parse_layer_button(parts[1], "b")
         else:
             entries.append(parse_remap_assignment(token))
+    a, b = layer_buttons(layers)
+    if a != LAYER_DISABLED and a == b:
+        sys.exit(f"{BUTTON_NAMES[a]} cannot be both layer buttons.")
+    offset = LAYER_TABLE_OFFSETS[table]
     for source, target in entries:
-        if layer[0] != LAYER_DISABLED and source == layer[0]:
-            sys.exit(f"{BUTTON_NAMES[source]} is the layer modifier and cannot be "
-                     "remapped inside the layer.")
-        layer[1 + source] = target
-    if layer[0] != LAYER_DISABLED:
-        layer[1 + layer[0]] = layer[0]
-    return layer
+        if source in (a, b):
+            sys.exit(f"{BUTTON_NAMES[source]} is a layer button and cannot be remapped in a layer.")
+        layers[offset + source] = target
+    layers = normalize_layers(layers)
+    return layers[:LAYER_SIZE] if single else layers
 
 
-def print_layer(layer, indent="  "):
-    modifier = layer[0]
-    if modifier == LAYER_DISABLED:
-        print(f"{indent}Modifier: off (layer disabled)")
-    else:
-        print(f"{indent}Modifier: {button_name(modifier)}")
-    changed = [s for s in range(BUTTON_SOURCE_COUNT) if layer[1 + s] != s]
-    if not changed:
-        print(f"{indent}(no buttons remapped in the layer)")
-    for source in changed:
-        print(f"{indent}{BUTTON_NAMES[source]:<15} -> {button_name(layer[1 + source])}")
+def print_layers(layers, has_layer_b=True, indent="  "):
+    a, b = layer_buttons(layers)
+    names = [button_name(m) if m != LAYER_DISABLED else "off" for m in (a, b)]
+    print(f"{indent}Layer button A: {names[0]}")
+    if has_layer_b:
+        print(f"{indent}Layer button B: {names[1]}")
+    shown = ("a", "b", "ab") if has_layer_b else ("a",)
+    for key in shown:
+        offset = LAYER_TABLE_OFFSETS[key]
+        changed = [s for s in range(BUTTON_SOURCE_COUNT) if layers[offset + s] != s]
+        print(f"{indent}{LAYER_TABLE_NAMES[key]}:" + ("" if changed else " (no layer mappings)"))
+        for source in changed:
+            print(f"{indent}  {BUTTON_NAMES[source]:<15} -> {button_name(layers[offset + source])}")
 
 
 def cmd_layer(args):
@@ -684,24 +764,27 @@ def cmd_layer(args):
         sys.exit("--reset cannot be combined with other layer changes.")
     dev = open_device()
     try:
-        layer = read_layer(dev)
+        layers, has_layer_b = read_layers(dev)
         if not args.assignments and not args.reset and not args.face_dpad:
-            print("Button layer:")
-            print_layer(layer)
+            print("Button layers:")
+            print_layers(layers, has_layer_b)
             return
         if args.reset:
-            wanted = default_layer()
+            wanted = default_layers()
         else:
             tokens = (list(FACE_DPAD_PRESET) if args.face_dpad else []) + args.assignments
-            wanted = parse_layer_assignments(tokens, layer)
-        new_layer = write_layer(dev, wanted, save=not args.no_save)
+            wanted = parse_layer_assignments(tokens, layers, args.layer)
+        if not has_layer_b and bytes(wanted[LAYER_SIZE:]) != bytes(default_layers()[LAYER_SIZE:]):
+            sys.exit("This firmware has a single layer button (no report 0xFD); "
+                     "update it to use layer button B.")
+        new_layers = write_layers(dev, wanted, save=not args.no_save, has_layer_b=has_layer_b)
     finally:
         dev.close()
-    if bytes(new_layer) != bytes(normalize_layer(wanted)):
-        sys.exit("Read-back verification failed for the button layer. "
-                 "Does the firmware support report 0xFC?")
-    print("Updated button layer:" + ("" if args.no_save else " (saved to flash)"))
-    print_layer(new_layer)
+    if bytes(new_layers) != bytes(normalize_layers(wanted)):
+        sys.exit("Read-back verification failed for the button layers. "
+                 "Does the firmware support reports 0xFC/0xFD?")
+    print("Updated button layers:" + ("" if args.no_save else " (saved to flash)"))
+    print_layers(new_layers, has_layer_b)
 
 
 def shortcut_offset(slot):
@@ -981,21 +1064,29 @@ def main():
 
     p_layer = sub.add_parser(
         "layer",
-        help="view or set the button layer (remaps active while a modifier is held)",
+        help="view or set button layers (remaps active while layer buttons are held)",
         formatter_class=argparse.RawDescriptionHelpFormatter,
+        description="""Layer buttons work like keyboard modifiers. Holding layer button A uses
+layer A, holding B uses layer B, and holding both uses layer A+B (its own table,
+not a mix of A and B). Entries left unmapped in a layer keep the base mapping.""",
         epilog="""Examples:
   python tools/config_tool.py layer
-  python tools/config_tool.py layer modifier=LeftPaddle --face-dpad
-  python tools/config_tool.py layer modifier=LeftPaddle cross=down triangle=up
-  python tools/config_tool.py layer cross=nomap
-  python tools/config_tool.py layer modifier=off
+  python tools/config_tool.py layer buttons=LeftPaddle,RightPaddle
+  python tools/config_tool.py layer --layer a --face-dpad
+  python tools/config_tool.py layer --layer b cross=l1 circle=r1
+  python tools/config_tool.py layer --layer ab cross=r3
+  python tools/config_tool.py layer --layer b cross=nomap
+  python tools/config_tool.py layer b=off
   python tools/config_tool.py layer --reset""",
     )
-    p_layer.add_argument("assignments", nargs="*", metavar="modifier=Button|source=target")
+    p_layer.add_argument("assignments", nargs="*",
+                         metavar="a=Button|b=Button|buttons=A,B|source=target")
+    p_layer.add_argument("--layer", choices=("a", "b", "ab"), default="a",
+                         help="which layer source=target edits go into (default: a)")
     p_layer.add_argument("--face-dpad", action="store_true",
-                         help="map Triangle/Cross/Square/Circle to Up/Down/Left/Right in the layer")
+                         help="map Triangle/Cross/Square/Circle to Up/Down/Left/Right in --layer")
     p_layer.add_argument("--reset", action="store_true",
-                         help="disable the layer and clear its remaps")
+                         help="turn off both layer buttons and clear every layer")
     p_layer.add_argument("--no-save", action="store_true",
                          help="update RAM only; do not persist to flash")
     p_layer.set_defaults(func=cmd_layer)

@@ -6,6 +6,7 @@
 
 #include <cmath>
 #include <cstring>
+#include <initializer_list>
 
 #include "bt.h"
 #include "button_shortcut.h"
@@ -163,20 +164,31 @@ void config_valid() {
 
 void button_layer_valid() {
     auto &layer = storage.button.layer;
-    // Only real buttons can be the modifier: D-pad directions are matched as
+    auto &layer2 = storage.button.layer2;
+    // Only real buttons can be layer buttons: D-pad directions are matched as
     // exact hat values, which makes them unreliable to hold as a modifier.
-    if (layer.modifier != BUTTON_LAYER_DISABLED &&
-        (layer.modifier < ButtonSquare || layer.modifier >= Disable)) {
-        printf("[Config] Button layer modifier is invalid %u\n", layer.modifier);
-        layer.modifier = BUTTON_LAYER_DISABLED;
-    }
-    for (uint8_t i = 0; i < BUTTON_REMAP_COUNT; i++) {
-        if (layer.remap[i] > Disable) {
-            layer.remap[i] = i; // Also the 0xFF left by flash from older firmware.
+    for (uint8_t *modifier : {&layer.modifier, &layer2.modifier}) {
+        if (*modifier != BUTTON_LAYER_DISABLED && (*modifier < ButtonSquare || *modifier >= Disable)) {
+            printf("[Config] Button layer modifier is invalid %u\n", *modifier);
+            *modifier = BUTTON_LAYER_DISABLED;
         }
     }
-    if (layer.modifier != BUTTON_LAYER_DISABLED) {
-        layer.remap[layer.modifier] = layer.modifier; // The modifier is consumed, never remapped.
+    if (layer2.modifier != BUTTON_LAYER_DISABLED && layer2.modifier == layer.modifier) {
+        printf("[Config] Layer button B duplicates layer button A\n");
+        layer2.modifier = BUTTON_LAYER_DISABLED;
+    }
+    for (uint8_t *table : {layer.remap, layer2.remap, layer2.combo_remap}) {
+        for (uint8_t i = 0; i < BUTTON_REMAP_COUNT; i++) {
+            if (table[i] > Disable) {
+                table[i] = i; // Also the 0xFF left by flash from older firmware.
+            }
+        }
+        // Layer buttons are consumed, never remapped, in every layer.
+        for (const uint8_t modifier : {layer.modifier, layer2.modifier}) {
+            if (modifier != BUTTON_LAYER_DISABLED) {
+                table[modifier] = modifier;
+            }
+        }
     }
 }
 
@@ -275,6 +287,14 @@ void set_button_layer(const uint8_t *new_layer, const uint16_t len) {
     constexpr auto room = sizeof(Button::layer);
     const auto copy_len = len < room ? len : room;
     memcpy(&storage.button.layer, new_layer, copy_len);
+    button_layer_valid();
+}
+
+void set_button_layer2(const uint8_t *new_layer, const uint16_t len) {
+    button_remap_reset();
+    constexpr auto room = sizeof(Button::layer2);
+    const auto copy_len = len < room ? len : room;
+    memcpy(&storage.button.layer2, new_layer, copy_len);
     button_layer_valid();
 }
 

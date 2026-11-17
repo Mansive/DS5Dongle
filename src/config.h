@@ -58,6 +58,9 @@ struct __attribute__((packed)) Button {
     // Appended after shortcuts: flash saved by older firmware pads this with
     // 0xFF, which validation reads as "layer disabled, identity table".
     ButtonLayer layer;
+    // Appended after the first layer for the same reason: 0xFF from older
+    // firmware reads as "layer button B off, identity tables".
+    ButtonLayer2 layer2;
 };
 
 struct __attribute__((packed)) ConfigStorage {
@@ -69,6 +72,7 @@ static_assert(offsetof(ConfigStorage, button) == CONFIG_STORAGE_SIZE);
 static_assert(BUTTON_REMAP_COUNT <= BUTTON_REPORT_SIZE); // 0xFA payload
 static_assert(sizeof(Button::shortcuts) <= BUTTON_REPORT_SIZE); // 0xFB payload
 static_assert(sizeof(ButtonLayer) <= BUTTON_REPORT_SIZE); // 0xFC payload
+static_assert(sizeof(ButtonLayer2) <= BUTTON_REPORT_SIZE); // 0xFD payload
 
 void config_default();
 void config_load();
@@ -79,6 +83,7 @@ void set_config(const uint8_t *new_config, const uint16_t len);
 void set_button_remap(const uint8_t *new_remap, uint16_t len);
 void set_shortcut(const uint8_t *new_shortcuts, uint16_t len);
 void set_button_layer(const uint8_t *new_layer, uint16_t len);
+void set_button_layer2(const uint8_t *new_layer, uint16_t len);
 void config_valid();
 void button_remap_valid();
 void button_layer_valid();

@@ -26,7 +26,8 @@ bool is_pico_cmd(uint8_t report_id) {
         report_id == 0xf9 ||
         report_id == 0xfa ||
         report_id == 0xfb ||
-        report_id == 0xfc
+        report_id == 0xfc ||
+        report_id == 0xfd
     ) {
         return true;
     }
@@ -93,6 +94,14 @@ uint16_t pico_cmd_get(uint8_t report_id, uint8_t *buffer, uint16_t reqlen) {
         memcpy(buffer, &get_button().layer, len);
         return len;
     }
+    if (report_id == 0xfd) {
+        // byte 0: layer button B (0xFF = disabled), bytes 1..28: B table,
+        // bytes 29..56: table for layer buttons A and B held together
+        printf("[HID] Receive 0xfd getting button layer B\n");
+        const auto len = std::min(sizeof(Button::layer2), static_cast<size_t>(reqlen));
+        memcpy(buffer, &get_button().layer2, len);
+        return len;
+    }
     return 0;
 }
 
@@ -116,6 +125,12 @@ void pico_cmd_set(uint8_t report_id, uint8_t const *buffer, uint16_t bufsize) {
     if (report_id == 0xfc) {
         printf("[HID] Receive 0xfc setting button layer\n");
         set_button_layer(buffer, bufsize);
+        return;
+    }
+
+    if (report_id == 0xfd) {
+        printf("[HID] Receive 0xfd setting button layer B\n");
+        set_button_layer2(buffer, bufsize);
         return;
     }
 

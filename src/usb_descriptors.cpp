@@ -394,8 +394,8 @@ uint8_t descriptor_configuration[] = {
     0x00, // bCountryCode: Not localized
     0x01, // bNumDescriptors: 1 report descriptor
     0x22, // bDescriptorType: Report
-    0x59, 0x01, // wDescriptorLength: 345 (0x0159) DS
-    // 0xCD, 0x01, // wDescriptorLength: 461 (0x01CD) DSE
+    0x61, 0x01, // wDescriptorLength: 353 (0x0161) DS
+    // 0xD5, 0x01, // wDescriptorLength: 469 (0x01D5) DSE
 
     // Endpoint Descriptor (HID IN: EP4)
     0x07, // bLength
@@ -487,11 +487,11 @@ uint8_t const *tud_descriptor_configuration_cb(uint8_t index) {
     descriptor_configuration[offset - 1] = bInterval;
     descriptor_configuration[offset - 8] = bInterval;
     // wDescriptorLength low byte (high byte stays 0x01); must match the
-    // static_asserts on desc_hid_report_ds (345) and desc_hid_report_dse (461).
+    // static_asserts on desc_hid_report_ds (353) and desc_hid_report_dse (469).
     if (ds_mode()) {
-        descriptor_configuration[offset - 16] = 0x59;
+        descriptor_configuration[offset - 16] = 0x61;
     }else {
-        descriptor_configuration[offset - 16] = 0xCD;
+        descriptor_configuration[offset - 16] = 0xD5;
     }
 
     // Advertise REMOTE_WAKEUP only when wake is on. Include the keyboard and consumer
@@ -682,10 +682,14 @@ uint8_t const desc_hid_report_ds[] = {
     0x09, 0x3D, //   Usage (Vendor 0x3D)
     0x95, 0x3F, //   Report Count (63)
     0xB1, 0x02, //   Feature (Data,Var,Abs,No Wrap,Linear,Preferred State,No Null Position,Non-volatile)
+    0x85, 0xFD, //   Report ID (Button layer B)
+    0x09, 0x3E, //   Usage (Vendor 0x3E)
+    0x95, 0x3F, //   Report Count (63)
+    0xB1, 0x02, //   Feature (Data,Var,Abs,No Wrap,Linear,Preferred State,No Null Position,Non-volatile)
     0xC0, // End Collection
-    // 345 bytes
+    // 353 bytes
 };
-static_assert(sizeof(desc_hid_report_ds) == 345);
+static_assert(sizeof(desc_hid_report_ds) == 353);
 
 uint8_t const desc_hid_report_dse[] = {
     0x05, 0x01, // Usage Page (Generic Desktop Ctrls)
@@ -915,10 +919,14 @@ uint8_t const desc_hid_report_dse[] = {
     0x09, 0x3D, //   Usage (Vendor 0x3D)
     0x95, 0x3F, //   Report Count (63)
     0xB1, 0x02, //   Feature (Data,Var,Abs,No Wrap,Linear,Preferred State,No Null Position,Non-volatile)
+    0x85, 0xFD, //   Report ID (Button layer B)
+    0x09, 0x3E, //   Usage (Vendor 0x3E)
+    0x95, 0x3F, //   Report Count (63)
+    0xB1, 0x02, //   Feature (Data,Var,Abs,No Wrap,Linear,Preferred State,No Null Position,Non-volatile)
     0xC0, // End Collection
-    // 461 bytes
+    // 469 bytes
 };
-static_assert(sizeof(desc_hid_report_dse) == 461);
+static_assert(sizeof(desc_hid_report_dse) == 469);
 
 #ifdef ENABLE_WAKE_HID
 // 45-byte boot-keyboard report descriptor (modifier byte + reserved + 6 keycodes,
