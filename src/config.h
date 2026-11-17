@@ -55,6 +55,9 @@ struct __attribute__((packed)) Config {
 struct __attribute__((packed)) Button {
     uint8_t button_remap[BUTTON_REMAP_COUNT]; // orig_btn:target_btn
     ButtonShortcut shortcuts[BUTTON_SHORTCUT_COUNT];
+    // Appended after shortcuts: flash saved by older firmware pads this with
+    // 0xFF, which validation reads as "layer disabled, identity table".
+    ButtonLayer layer;
 };
 
 struct __attribute__((packed)) ConfigStorage {
@@ -65,6 +68,7 @@ struct __attribute__((packed)) ConfigStorage {
 static_assert(offsetof(ConfigStorage, button) == CONFIG_STORAGE_SIZE);
 static_assert(BUTTON_REMAP_COUNT <= BUTTON_REPORT_SIZE); // 0xFA payload
 static_assert(sizeof(Button::shortcuts) <= BUTTON_REPORT_SIZE); // 0xFB payload
+static_assert(sizeof(ButtonLayer) <= BUTTON_REPORT_SIZE); // 0xFC payload
 
 void config_default();
 void config_load();
@@ -74,8 +78,10 @@ Button& get_button();
 void set_config(const uint8_t *new_config, const uint16_t len);
 void set_button_remap(const uint8_t *new_remap, uint16_t len);
 void set_shortcut(const uint8_t *new_shortcuts, uint16_t len);
+void set_button_layer(const uint8_t *new_layer, uint16_t len);
 void config_valid();
 void button_remap_valid();
+void button_layer_valid();
 void shortcut_valid();
 void set_config(const Config_body &new_config);
 extern bool is_dse;

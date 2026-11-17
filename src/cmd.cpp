@@ -9,6 +9,7 @@
 #include <cstring>
 
 #include "bt.h"
+#include "button_functions.h"
 #include "button_shortcut.h"
 #include "config.h"
 #include "device/usbd.h"
@@ -24,7 +25,8 @@ bool is_pico_cmd(uint8_t report_id) {
         report_id == 0xf8 ||
         report_id == 0xf9 ||
         report_id == 0xfa ||
-        report_id == 0xfb
+        report_id == 0xfb ||
+        report_id == 0xfc
     ) {
         return true;
     }
@@ -84,6 +86,13 @@ uint16_t pico_cmd_get(uint8_t report_id, uint8_t *buffer, uint16_t reqlen) {
         memcpy(buffer, get_button().shortcuts, len);
         return len;
     }
+    if (report_id == 0xfc) {
+        // byte 0: layer modifier ButtonId (0xFF = disabled), bytes 1..: layer remap table
+        printf("[HID] Receive 0xfc getting button layer\n");
+        const auto len = std::min(sizeof(Button::layer), static_cast<size_t>(reqlen));
+        memcpy(buffer, &get_button().layer, len);
+        return len;
+    }
     return 0;
 }
 
@@ -101,6 +110,12 @@ void pico_cmd_set(uint8_t report_id, uint8_t const *buffer, uint16_t bufsize) {
     if (report_id == 0xfb) {
         printf("[HID] Receive 0xfb setting shortcut slots\n");
         set_shortcut(buffer, bufsize);
+        return;
+    }
+
+    if (report_id == 0xfc) {
+        printf("[HID] Receive 0xfc setting button layer\n");
+        set_button_layer(buffer, bufsize);
         return;
     }
 
@@ -128,6 +143,14 @@ void pico_cmd_set(uint8_t report_id, uint8_t const *buffer, uint16_t bufsize) {
         if (bufsize >= 2 && buffer[1]) {
             printf("[CMD] Shortcut learning window\n");
             button_shortcut_start_learning();
+        }
+    }
+    if (buffer[0] == PICO_CMD_REBOOT_BOOTSEL) {
+        if (bufsize >= 3 && buffer[1] == PICO_CMD_REBOOT_BOOTSEL_MAGIC[0] &&
+            buffer[2] == PICO_CMD_REBOOT_BOOTSEL_MAGIC[1]) {
+            printf("[CMD] Reboot to BOOTSEL requested\n");
+            // Deferred to the main loop so this SET_REPORT completes first.
+            bootsel_reboot_request();
         }
     }
 }

@@ -29,6 +29,17 @@ static int button_wait_samples = 0;
 static int button_click_count = 0;
 static uint32_t button_last_check_ms = 0;
 
+// Pending BOOTSEL reboot. Set from the USB callback (tud_task, main loop) and
+// read in button_check (main loop), so no cross-core access.
+static bool bootsel_reboot_pending = false;
+static absolute_time_t bootsel_reboot_at;
+
+void bootsel_reboot_request() {
+    // Long enough for the SET_REPORT status stage to reach the host.
+    bootsel_reboot_at = make_timeout_time_ms(200);
+    bootsel_reboot_pending = true;
+}
+
 // Read BOOTSEL by briefly floating the QSPI CSn line. Must run with both cores
 // in a known-safe state - if core 1 does an XIP read while CSn is floating it
 // gets garbage and the CYW43 driver misbehaves (immediate BT disconnect on audio
@@ -93,6 +104,11 @@ void button_check() {
     // No connection gate: safe to poll during audio because button_read_bootsel()
     // uses flash_safe_execute(), which parks core1 (the audio core) for the QSPI
     // CSn float -- see flash_safe_execute_core_init() and PICO_FLASH_ASSUME_CORE1_SAFE=0.
+    if (bootsel_reboot_pending && time_reached(bootsel_reboot_at)) {
+        printf("[CMD] Rebooting to BOOTSEL\n");
+        reset_usb_boot(0, 0); // noreturn, same path as the triple click
+    }
+
     uint32_t now = to_ms_since_boot(get_absolute_time());
     if (now - button_last_check_ms < 100) return;
     button_last_check_ms = now;

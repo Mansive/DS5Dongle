@@ -158,6 +158,26 @@ void config_valid() {
     }
     button_remap_valid();
     shortcut_valid();
+    button_layer_valid();
+}
+
+void button_layer_valid() {
+    auto &layer = storage.button.layer;
+    // Only real buttons can be the modifier: D-pad directions are matched as
+    // exact hat values, which makes them unreliable to hold as a modifier.
+    if (layer.modifier != BUTTON_LAYER_DISABLED &&
+        (layer.modifier < ButtonSquare || layer.modifier >= Disable)) {
+        printf("[Config] Button layer modifier is invalid %u\n", layer.modifier);
+        layer.modifier = BUTTON_LAYER_DISABLED;
+    }
+    for (uint8_t i = 0; i < BUTTON_REMAP_COUNT; i++) {
+        if (layer.remap[i] > Disable) {
+            layer.remap[i] = i; // Also the 0xFF left by flash from older firmware.
+        }
+    }
+    if (layer.modifier != BUTTON_LAYER_DISABLED) {
+        layer.remap[layer.modifier] = layer.modifier; // The modifier is consumed, never remapped.
+    }
 }
 
 void button_remap_valid() {
@@ -248,6 +268,14 @@ void set_button_remap(const uint8_t *new_remap, const uint16_t len) {
     const auto copy_len = len < BUTTON_REMAP_COUNT ? len : BUTTON_REMAP_COUNT;
     memcpy(storage.button.button_remap, new_remap, copy_len);
     button_remap_valid();
+}
+
+void set_button_layer(const uint8_t *new_layer, const uint16_t len) {
+    button_remap_reset(); // Held buttons must not keep a latch from the old layer.
+    constexpr auto room = sizeof(Button::layer);
+    const auto copy_len = len < room ? len : room;
+    memcpy(&storage.button.layer, new_layer, copy_len);
+    button_layer_valid();
 }
 
 void set_shortcut(const uint8_t *new_shortcuts, const uint16_t len) {

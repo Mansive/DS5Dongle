@@ -7,11 +7,13 @@ Protocol (see src/cmd.cpp / src/config.h):
   GET feature report 0xF8 -> firmware version string
   GET/SET feature report 0xFA -> button remap table (28 bytes)
   GET/SET feature report 0xFB -> shortcut slots (63 bytes)
+  GET/SET feature report 0xFC -> button layer: modifier + remap table (29 bytes)
   SET feature report 0xF6:
       funcid 0x01 + body   -> update config in RAM (firmware clamps invalid values)
       funcid 0x02          -> persist config to flash
       funcid 0x03          -> reconnect the USB device
       funcid 0x05 + 1      -> pause shortcut output for 5s (config UI trigger capture)
+      funcid 0x06 B0 07    -> reboot into BOOTSEL for flashing a new .uf2
 
 Config_body is a packed struct; this tool derives the binary layout from FIELDS.
 
@@ -25,6 +27,9 @@ Examples:
   python config_tool.py remap square=cross l1=disable
   python config_tool.py remap square=nomap  # clear (restore identity mapping)
   python config_tool.py remap --reset       # reset all button remaps
+  python config_tool.py layer
+  python config_tool.py layer modifier=LeftPaddle --face-dpad
+  python config_tool.py layer --reset
   python config_tool.py shortcut
   python config_tool.py shortcut 1=L1+R1:Ctrl+Shift+S
   python config_tool.py shortcut 4=Home:F13
@@ -34,6 +39,7 @@ Examples:
   python config_tool.py shortcut 6=Create+Options*2:bt_disconnect
   python config_tool.py shortcut 9=Mute*2:Play
   python config_tool.py shortcut 1=off
+  python config_tool.py bootsel             # reboot into BOOTSEL to flash a .uf2
   python config_tool.py fields
 """
 import argparse
@@ -60,10 +66,13 @@ REPORT_GET_CONFIG = 0xF7  # GET_REPORT: read Config_body
 REPORT_GET_VERSION = 0xF8  # GET_REPORT: firmware version string
 REPORT_REMAP = 0xFA       # GET/SET_REPORT: button remap table
 REPORT_SHORTCUT = 0xFB    # GET/SET_REPORT: shortcut slots
+REPORT_LAYER = 0xFC       # GET/SET_REPORT: button layer (modifier + remap table)
 
 FUNC_UPDATE = 0x01       # update config in RAM
 FUNC_SAVE = 0x02         # persist to flash
 FUNC_RECONNECT = 0x03    # reconnect tinyusb device
+FUNC_REBOOT_BOOTSEL = 0x06            # reboot into BOOTSEL (USB mass storage)
+REBOOT_BOOTSEL_MAGIC = bytes([0xB0, 0x07])  # must follow FUNC_REBOOT_BOOTSEL
 
 SET_DATA_LEN = 63        # data bytes after the report id (descriptor report count 0x3F)
 FEATURE_REPORT_LEN = SET_DATA_LEN + 1  # report id + descriptor report count
@@ -127,6 +136,11 @@ DPAD_MAX = 7               # DPadNorthWest; the hat reports one direction at a t
 KEY_USAGE_MAX = 0x73       # src/usb_descriptors.h SHORTCUT_KEY_USAGE_MAX
 CONSUMER_USAGE_MAX = 0x2FF # src/usb_descriptors.h SHORTCUT_CONSUMER_USAGE_MAX
 SHORTCUT_STORAGE_SIZE = SHORTCUT_COUNT * SHORTCUT_SIZE
+LAYER_DISABLED = 0xFF      # src/button_remap.h BUTTON_LAYER_DISABLED
+LAYER_SIZE = 1 + BUTTON_REMAP_COUNT  # src/button_remap.h ButtonLayer: modifier + table
+LAYER_MODIFIER_IDS = range(BUTTON_NAMES.index("Square"), BUTTON_COUNT - 1)
+# --face-dpad: hold the modifier and use the face buttons as a D-pad.
+FACE_DPAD_PRESET = ("triangle=up", "cross=down", "square=left", "circle=right")
 if SHORTCUT_STORAGE_SIZE > SET_DATA_LEN:
     raise RuntimeError(
         f"Shortcut slots need {SHORTCUT_STORAGE_SIZE} bytes, but report "
@@ -473,6 +487,10 @@ def cmd_get(_args):
         cfg = read_config(dev)
         remap = read_remap(dev)
         shortcuts = read_shortcuts(dev)
+        try:
+            layer = read_layer(dev)
+        except SystemExit:
+            layer = None  # Older firmware without report 0xFC.
     finally:
         dev.close()
     if version:
@@ -481,6 +499,11 @@ def cmd_get(_args):
     print_config(cfg)
     print("Button remaps:")
     print_remaps(remap)
+    print("Button layer:")
+    if layer is None:
+        print("  (not supported by this firmware)")
+    else:
+        print_layer(layer)
     print("Shortcut slots:")
     print_shortcuts(shortcuts)
 
@@ -582,6 +605,103 @@ def cmd_remap(args):
     for source in updates:
         target = new_remap[source]
         print(f"  {BUTTON_NAMES[source]:<15} -> {button_name(target)}")
+
+
+def read_layer(dev):
+    return read_area(dev, REPORT_LAYER, LAYER_SIZE, "button layer")
+
+
+def write_layer(dev, layer, save):
+    send_feature_report(
+        dev, bytes(layer), "updating button layer", report_id=REPORT_LAYER
+    )
+    save_button_sector(dev, save)
+    return read_layer(dev)
+
+
+def default_layer():
+    return bytearray([LAYER_DISABLED]) + bytearray(range(BUTTON_REMAP_COUNT))
+
+
+def normalize_layer(layer):
+    """Apply the firmware's button_layer_valid() rules to a layer byte array."""
+    layer = bytearray(layer[:LAYER_SIZE].ljust(LAYER_SIZE, b"\xff"))
+    modifier = layer[0]
+    if modifier != LAYER_DISABLED and modifier not in LAYER_MODIFIER_IDS:
+        layer[0] = modifier = LAYER_DISABLED
+    for source in range(BUTTON_REMAP_COUNT):
+        if layer[1 + source] > BUTTON_COUNT - 1:
+            layer[1 + source] = source
+    if modifier != LAYER_DISABLED:
+        layer[1 + modifier] = modifier
+    return layer
+
+
+def parse_layer_assignments(tokens, layer):
+    """Apply modifier=Button|off and source=target tokens to a layer byte array."""
+    layer = bytearray(layer)
+    entries = []
+    for token in tokens:
+        if "=" not in token:
+            sys.exit(f"Bad layer assignment '{token}', expected modifier=Button or source=target.")
+        name, value = (part.strip() for part in token.split("=", 1))
+        if normalize_button_name(name) == "modifier":
+            if normalize_button_name(value) in ("off", "none", "disable", "disabled"):
+                layer[0] = LAYER_DISABLED
+                continue
+            modifier = parse_button(value, source=True)
+            if modifier not in LAYER_MODIFIER_IDS:
+                sys.exit(f"'{value}' cannot be the layer modifier; pick a button "
+                         "(Square..RightPaddle), not a D-pad direction.")
+            layer[0] = modifier
+        else:
+            entries.append(parse_remap_assignment(token))
+    for source, target in entries:
+        if layer[0] != LAYER_DISABLED and source == layer[0]:
+            sys.exit(f"{BUTTON_NAMES[source]} is the layer modifier and cannot be "
+                     "remapped inside the layer.")
+        layer[1 + source] = target
+    if layer[0] != LAYER_DISABLED:
+        layer[1 + layer[0]] = layer[0]
+    return layer
+
+
+def print_layer(layer, indent="  "):
+    modifier = layer[0]
+    if modifier == LAYER_DISABLED:
+        print(f"{indent}Modifier: off (layer disabled)")
+    else:
+        print(f"{indent}Modifier: {button_name(modifier)}")
+    changed = [s for s in range(BUTTON_SOURCE_COUNT) if layer[1 + s] != s]
+    if not changed:
+        print(f"{indent}(no buttons remapped in the layer)")
+    for source in changed:
+        print(f"{indent}{BUTTON_NAMES[source]:<15} -> {button_name(layer[1 + source])}")
+
+
+def cmd_layer(args):
+    if args.reset and (args.assignments or args.face_dpad):
+        sys.exit("--reset cannot be combined with other layer changes.")
+    dev = open_device()
+    try:
+        layer = read_layer(dev)
+        if not args.assignments and not args.reset and not args.face_dpad:
+            print("Button layer:")
+            print_layer(layer)
+            return
+        if args.reset:
+            wanted = default_layer()
+        else:
+            tokens = (list(FACE_DPAD_PRESET) if args.face_dpad else []) + args.assignments
+            wanted = parse_layer_assignments(tokens, layer)
+        new_layer = write_layer(dev, wanted, save=not args.no_save)
+    finally:
+        dev.close()
+    if bytes(new_layer) != bytes(normalize_layer(wanted)):
+        sys.exit("Read-back verification failed for the button layer. "
+                 "Does the firmware support report 0xFC?")
+    print("Updated button layer:" + ("" if args.no_save else " (saved to flash)"))
+    print_layer(new_layer)
 
 
 def shortcut_offset(slot):
@@ -819,6 +939,22 @@ def cmd_shortcut(args):
     print_shortcuts(new_shortcuts)
 
 
+def bootsel_command():
+    """0xF6 payload asking the firmware to reboot into BOOTSEL."""
+    return (bytes([FUNC_REBOOT_BOOTSEL]) + REBOOT_BOOTSEL_MAGIC).ljust(SET_DATA_LEN, b"\x00")
+
+
+def cmd_bootsel(_args):
+    dev = open_device()
+    try:
+        send_feature_report(dev, bootsel_command(), "requesting BOOTSEL reboot")
+    finally:
+        dev.close()
+    print("Reboot to BOOTSEL requested. An RP2350 drive should appear in a few seconds;")
+    print("copy the .uf2 onto it. If nothing happens, the firmware predates this command:")
+    print("triple-click the BOOTSEL button instead.")
+
+
 def main():
     parser = argparse.ArgumentParser(description="Read and modify ds5dongle config over USB HID.")
     sub = parser.add_subparsers(dest="command", required=True)
@@ -842,6 +978,27 @@ def main():
     p_remap.add_argument("--no-save", action="store_true",
                          help="update RAM only; do not persist to flash")
     p_remap.set_defaults(func=cmd_remap)
+
+    p_layer = sub.add_parser(
+        "layer",
+        help="view or set the button layer (remaps active while a modifier is held)",
+        formatter_class=argparse.RawDescriptionHelpFormatter,
+        epilog="""Examples:
+  python tools/config_tool.py layer
+  python tools/config_tool.py layer modifier=LeftPaddle --face-dpad
+  python tools/config_tool.py layer modifier=LeftPaddle cross=down triangle=up
+  python tools/config_tool.py layer cross=nomap
+  python tools/config_tool.py layer modifier=off
+  python tools/config_tool.py layer --reset""",
+    )
+    p_layer.add_argument("assignments", nargs="*", metavar="modifier=Button|source=target")
+    p_layer.add_argument("--face-dpad", action="store_true",
+                         help="map Triangle/Cross/Square/Circle to Up/Down/Left/Right in the layer")
+    p_layer.add_argument("--reset", action="store_true",
+                         help="disable the layer and clear its remaps")
+    p_layer.add_argument("--no-save", action="store_true",
+                         help="update RAM only; do not persist to flash")
+    p_layer.set_defaults(func=cmd_layer)
 
     p_shortcut = sub.add_parser(
         "shortcut",
@@ -867,6 +1024,10 @@ def main():
     p_shortcut.add_argument("--reset", action="store_true",
                             help="turn off all shortcut mappings")
     p_shortcut.set_defaults(func=cmd_shortcut)
+
+    sub.add_parser(
+        "bootsel", help="reboot the dongle into BOOTSEL (USB drive) to flash a new .uf2",
+    ).set_defaults(func=cmd_bootsel)
 
     args = parser.parse_args()
     args.func(args)

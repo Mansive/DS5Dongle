@@ -41,8 +41,11 @@ You have two options:
 3. The device will mount as a USB storage device
 4. Drag and drop the .uf2 firmware file onto the device
 
-> The firmware also supports a **reboot-to-BOOTSEL** command: the **Reboot to Bootloader** button in the
-> [web config](#configuration) reboots the dongle into BOOTSEL mode without holding the physical button.
+> **Updating without holding BOOTSEL:** once the dongle runs firmware with the reboot-to-BOOTSEL command
+> (feature report `0xF6`, funcid `0x06`, magic `B0 07`), the **Reboot to Bootloader** button in the
+> [web config](#configuration), or `python tools/config_tool.py bootsel`, reboots it into BOOTSEL mode so the
+> drive appears for the next `.uf2`. Older firmware ignores the command; flash it by hand once, or
+> triple-click the BOOTSEL button (see below).
 
 ### Pairing the Controller
 
@@ -258,6 +261,26 @@ Use `tools/build-macos.sh --clean` to rebuild from scratch, or
 `--sdk-dir <path>` to use an existing SDK checkout. When using `--sdk-dir`, the script asks before checking that SDK out
 to the required Pico SDK and TinyUSB versions. If Homebrew's `arm-none-eabi-gcc` formula is installed without standard C
 headers, the script asks to install the complete `gcc-arm-embedded` cask and points CMake at that toolchain.
+
+## Button layer
+
+A button layer is a second remap table. It applies to buttons pressed while a layer button
+is held. For example, hold the DualSense Edge left paddle and press Triangle, Cross, Square
+or Circle to get D-pad Up, Down, Left or Right.
+
+```sh
+python tools/config_tool.py layer modifier=LeftPaddle --face-dpad
+python tools/config_tool.py layer modifier=LeftPaddle cross=down triangle=up
+python tools/config_tool.py layer --reset
+```
+
+- The layer button itself is hidden from the game while the layer is enabled.
+- A button keeps its layer output until it is released, even if the layer button is let go first.
+- Layer entries left unmapped use the base remap.
+- D-pad outputs combine into diagonals; opposite directions cancel.
+
+The web config's Remap page has a matching **Base / Layer** toggle. The layer uses
+feature report `0xFC`; details are in [docs/button-layer.md](docs/button-layer.md).
 
 ## Custom button chords
 

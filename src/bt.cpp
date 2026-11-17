@@ -653,6 +653,7 @@ static void __not_in_flash_func(hci_packet_handler)(uint8_t packet_type, uint16_
             hid_interrupt_cid = 0;
             gpio_on_disconnect();
             wake_on_bt_disconnect();
+            button_remap_reset();
 #if !ENABLE_SERIAL
             if (get_config().enable_wake && !tud_suspended()) {
                 usb_reconnect(true);
