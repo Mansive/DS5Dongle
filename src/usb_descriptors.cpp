@@ -440,15 +440,15 @@ uint8_t descriptor_configuration[] = {
     0x00, // bCountryCode
     0x01, // bNumDescriptors
     0x22, // bDescriptorType: Report
-    0x38, 0x00, // wDescriptorLength: 56 (sizeof desc_hid_report_consumer)
+    0x6E, 0x00, // wDescriptorLength: 110 (sizeof desc_hid_report_consumer)
 
     // Endpoint Descriptor (HID IN: EP8)
     0x07, // bLength
     0x05, // bDescriptorType (ENDPOINT)
     0x88, // bEndpointAddress: IN EP8
     0x03, // bmAttributes: Interrupt
-    0x08, 0x00, // wMaxPacketSize: 8 (2-byte usage, padded)
-    0x0A, // bInterval: 10ms
+    0x08, 0x00, // wMaxPacketSize: 8 (largest report: mouse, ID + 5 bytes)
+    0x01, // bInterval: 1ms, so the touchpad mouse moves smoothly
 #endif
 };
 
@@ -498,7 +498,9 @@ uint8_t const *tud_descriptor_configuration_cb(uint8_t index) {
     // interfaces (the LAST two descriptor blocks) when wake or the explicit keyboard
     // switch is on. With both off this is byte-identical to the base descriptor.
     const bool wake = get_config().enable_wake;
-    const bool kbd = wake || get_config().enable_keyboard || get_config().sleep_on_dock;
+    // The touchpad mouse and mouse-button remaps also send on the consumer interface.
+    const bool kbd = wake || get_config().enable_keyboard || get_config().sleep_on_dock ||
+                     get_config().touchpad_mouse != TouchpadMouseOff || button_remap_uses_mouse();
     descriptor_configuration[7] = wake ? 0xE0 : 0xC0; // bmAttributes (REMOTE_WAKEUP bit)
     const uint16_t total = kbd ? CONFIG_DESC_LEN_TOTAL
                                : (uint16_t) (CONFIG_DESC_LEN_TOTAL - CONFIG_DESC_LEN_SHORTCUT_HID);
@@ -959,9 +961,10 @@ uint8_t const desc_hid_report_kbd[] = {
 
 static_assert(sizeof(desc_hid_report_kbd) == 45, "keyboard report descriptor length must match config descriptor" );
 
-// 56-byte Consumer + System Control report descriptor:
+// 110-byte Consumer + System Control + Mouse report descriptor:
 // Report ID 1: Consumer Control (16-bit usage array)
 // Report ID 2: System Control (System Sleep / Power Down / Wake Up)
+// Report ID 3: Mouse (5 buttons, 16-bit relative X/Y), see touchpad_mouse.cpp
 uint8_t const desc_hid_report_consumer[] = {
     0x05, 0x0C,       // Usage Page (Consumer)
     0x09, 0x01,       // Usage (Consumer Control)
@@ -991,9 +994,37 @@ uint8_t const desc_hid_report_consumer[] = {
     0x75, 0x06,       //   Report Size (6 bits padding)
     0x95, 0x01,       //   Report Count (1)
     0x81, 0x01,       //   Input (Const)
+    0xC0,             // End Collection
+
+    0x05, 0x01,       // Usage Page (Generic Desktop)
+    0x09, 0x02,       // Usage (Mouse)
+    0xA1, 0x01,       // Collection (Application)
+    0x85, 0x03,       //   Report ID (3)
+    0x09, 0x01,       //   Usage (Pointer)
+    0xA1, 0x00,       //   Collection (Physical)
+    0x05, 0x09,       //     Usage Page (Button)
+    0x19, 0x01,       //     Usage Minimum (1)
+    0x29, 0x05,       //     Usage Maximum (5): left, right, middle, back, forward
+    0x15, 0x00,       //     Logical Minimum (0)
+    0x25, 0x01,       //     Logical Maximum (1)
+    0x95, 0x05,       //     Report Count (5)
+    0x75, 0x01,       //     Report Size (1)
+    0x81, 0x02,       //     Input (Data,Var,Abs)
+    0x95, 0x01,       //     Report Count (1)
+    0x75, 0x03,       //     Report Size (3 bits padding)
+    0x81, 0x01,       //     Input (Const)
+    0x05, 0x01,       //     Usage Page (Generic Desktop)
+    0x09, 0x30,       //     Usage (X)
+    0x09, 0x31,       //     Usage (Y)
+    0x16, 0x01, 0x80, //     Logical Minimum (-32767)
+    0x26, 0xFF, 0x7F, //     Logical Maximum (32767)
+    0x75, 0x10,       //     Report Size (16)
+    0x95, 0x02,       //     Report Count (2)
+    0x81, 0x06,       //     Input (Data,Var,Rel)
+    0xC0,             //   End Collection
     0xC0              // End Collection
 };
-static_assert(sizeof(desc_hid_report_consumer) == 56, "consumer report descriptor length must match wDescriptorLength in config descriptor");
+static_assert(sizeof(desc_hid_report_consumer) == 110, "consumer report descriptor length must match wDescriptorLength in config descriptor");
 #endif
 
 // Invoked when received GET HID REPORT DESCRIPTOR

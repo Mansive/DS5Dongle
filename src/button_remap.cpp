@@ -33,6 +33,7 @@ static_assert(sizeof(DIRECTION_BITS) == None + 1);
 // 0-2 resend one BT report many times) never changes them.
 static uint32_t prev_pressed = 0;
 static uint8_t latched_layer[Disable] = {};
+static uint8_t mouse_buttons = 0;
 
 static uint8_t direction_bits(const uint8_t direction) {
     return direction < sizeof(DIRECTION_BITS) ? DIRECTION_BITS[direction] : 0;
@@ -112,7 +113,27 @@ static void press_button(USBGetStateData &state_data, const uint8_t button) {
 
 void button_remap_reset() {
     prev_pressed = 0;
+    mouse_buttons = 0;
     memset(latched_layer, 0, sizeof(latched_layer));
+}
+
+uint8_t button_remap_mouse_buttons() {
+    return mouse_buttons;
+}
+
+static bool is_mouse_target(const uint8_t target) {
+    return target >= MouseLeft && target < RemapTargetCount;
+}
+
+bool button_remap_uses_mouse() {
+    const Button &button = get_button();
+    for (uint8_t i = 0; i < BUTTON_REMAP_COUNT; i++) {
+        if (is_mouse_target(button.button_remap[i])) return true;
+        for (const auto &layer : button.layers.layer) {
+            if (is_mouse_target(layer.remap[i])) return true;
+        }
+    }
+    return false;
 }
 
 uint32_t button_layer_hold_mask(const ButtonLayer &layer) {
@@ -177,6 +198,15 @@ void button_remap_apply(USBGetStateData &state_data) {
         targets[i] = target;
         remapped |= target != i;
     }
+    // Mouse targets leave the gamepad report; their buttons go out on the
+    // mouse report instead (see touchpad_mouse.cpp).
+    uint8_t mouse = 0;
+    for (uint8_t i = 0; i < Disable; i++) {
+        if (is_mouse_target(targets[i]) && (pressed & (1u << i))) {
+            mouse |= 1u << (targets[i] - MouseLeft);
+        }
+    }
+    mouse_buttons = mouse;
     if (!remapped) {
         return;
     }

@@ -156,6 +156,15 @@ void config_valid() {
         body->sleep_on_dock = 0;
         printf("[Config] sleep_on_dock is invalid\n");
     }
+    if (body->touchpad_mouse > TouchpadMouseHideTouch) {
+        body->touchpad_mouse = TouchpadMouseOff;
+        printf("[Config] touchpad_mouse is invalid\n");
+    }
+    if (body->touchpad_sensitivity < TOUCHPAD_SENSITIVITY_MIN ||
+        body->touchpad_sensitivity > TOUCHPAD_SENSITIVITY_MAX) {
+        body->touchpad_sensitivity = TOUCHPAD_SENSITIVITY_DEFAULT;
+        printf("[Config] touchpad_sensitivity is invalid\n");
+    }
     button_remap_valid();
     shortcut_valid();
     button_layer_valid();
@@ -199,7 +208,7 @@ void button_layer_valid() {
     for (auto &layer : layers.layer) {
         for (uint8_t i = 0; i < BUTTON_REMAP_COUNT; i++) {
             // Layer buttons are consumed, never remapped, in every layer.
-            if (layer.remap[i] > Disable || (layer_buttons & (1u << i))) {
+            if (layer.remap[i] >= RemapTargetCount || (layer_buttons & (1u << i))) {
                 layer.remap[i] = i;
             }
         }
@@ -208,7 +217,7 @@ void button_layer_valid() {
 
 void button_remap_valid() {
     for (uint8_t i = 0; i < BUTTON_REMAP_COUNT; i++) {
-        if (storage.button.button_remap[i] > Disable) {
+        if (storage.button.button_remap[i] >= RemapTargetCount) {
             printf("[Config] Button remap value is invalid %u\n", storage.button.button_remap[i]);
             storage.button.button_remap[i] = i;
         }

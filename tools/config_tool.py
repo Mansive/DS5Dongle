@@ -28,6 +28,8 @@ Examples:
   python config_tool.py remap
   python config_tool.py remap square=cross l1=disable
   python config_tool.py remap square=nomap  # clear (restore identity mapping)
+  python config_tool.py remap r1=mouseleft l1=mouseright  # mouse clicks
+  python config_tool.py set touchpad_mouse=1 touchpad_sensitivity=10
   python config_tool.py remap --reset       # reset all button remaps
   python config_tool.py layer
   python config_tool.py layer --layer 1 hold=LeftPaddle --face-dpad
@@ -41,6 +43,7 @@ Examples:
   python config_tool.py shortcut 3=Create+Options:bt_disconnect
   python config_tool.py shortcut 6=Create+Options*2:bt_disconnect
   python config_tool.py shortcut 9=Mute*2:Play
+  python config_tool.py shortcut 7=Pad*2:toggle_touchpad_mouse
   python config_tool.py shortcut 1=off
   python config_tool.py bootsel             # reboot into BOOTSEL to flash a .uf2
   python config_tool.py fields
@@ -123,6 +126,12 @@ BUTTON_NAMES = (
 BUTTON_COUNT = len(BUTTON_NAMES)
 BUTTON_REMAP_COUNT = BUTTON_COUNT
 BUTTON_SOURCE_COUNT = BUTTON_COUNT - 1
+# Remap targets only (src/button_utils.h MouseLeft..MouseForward): never
+# sources, shortcut triggers or layer hold buttons.
+MOUSE_TARGET_NAMES = ("MouseLeft", "MouseRight", "MouseMiddle", "MouseBack", "MouseForward")
+REMAP_TARGET_NAMES = BUTTON_NAMES + MOUSE_TARGET_NAMES
+REMAP_TARGET_COUNT = len(REMAP_TARGET_NAMES)
+MOUSE_TARGET_IDS = range(BUTTON_COUNT, REMAP_TARGET_COUNT)
 SHORTCUT_COUNT = 9        # src/config.h BUTTON_SHORTCUT_COUNT
 SHORTCUT_PAYLOAD_SIZE = 3
 SHORTCUT_SIZE = 3 + SHORTCUT_PAYLOAD_SIZE + 1  # triggers/action + payload + flags
@@ -136,6 +145,17 @@ SHORTCUT_FLAG_MASK = SHORTCUT_FLAG_DOUBLE_TAP | SHORTCUT_FLAG_HOLD | SHORTCUT_FL
 SHORTCUT_ACTION_KEYBOARD = 0
 SHORTCUT_ACTION_BT_DISCONNECT = 1
 SHORTCUT_ACTION_CONSUMER = 2
+SHORTCUT_ACTION_TOGGLE_TOUCHPAD_MOUSE = 3
+SHORTCUT_FIRMWARE_ACTIONS = {
+    SHORTCUT_ACTION_BT_DISCONNECT: "bt_disconnect",
+    SHORTCUT_ACTION_TOGGLE_TOUCHPAD_MOUSE: "toggle_touchpad_mouse",
+}
+SHORTCUT_FIRMWARE_ACTION_NAMES = {
+    "btdisconnect": SHORTCUT_ACTION_BT_DISCONNECT,
+    "disconnect": SHORTCUT_ACTION_BT_DISCONNECT,
+    "toggletouchpadmouse": SHORTCUT_ACTION_TOGGLE_TOUCHPAD_MOUSE,
+    "touchpadmouse": SHORTCUT_ACTION_TOGGLE_TOUCHPAD_MOUSE,
+}
 DPAD_MAX = 7               # DPadNorthWest; the hat reports one direction at a time
 KEY_USAGE_MAX = 0x73       # src/usb_descriptors.h SHORTCUT_KEY_USAGE_MAX
 CONSUMER_USAGE_MAX = 0x2FF # src/usb_descriptors.h SHORTCUT_CONSUMER_USAGE_MAX
@@ -243,6 +263,18 @@ BUTTON_NAME_TO_ID.update({
     "off": BUTTON_NAME_TO_ID["disable"],
 })
 
+MOUSE_TARGET_NAME_TO_ID = {
+    normalize_button_name(name): BUTTON_COUNT + index
+    for index, name in enumerate(MOUSE_TARGET_NAMES)
+}
+MOUSE_TARGET_NAME_TO_ID.update({
+    "leftclick": MOUSE_TARGET_NAME_TO_ID["mouseleft"],
+    "rightclick": MOUSE_TARGET_NAME_TO_ID["mouseright"],
+    "middleclick": MOUSE_TARGET_NAME_TO_ID["mousemiddle"],
+    "mouse4": MOUSE_TARGET_NAME_TO_ID["mouseback"],
+    "mouse5": MOUSE_TARGET_NAME_TO_ID["mouseforward"],
+})
+
 # These are CLI-only conveniences, not ButtonId enum members. Clearing a remap
 # now writes the source button's own ID (an identity mapping) to the table.
 CLEAR_REMAP_NAMES = {"nomap", "none", "default", "self"}
@@ -277,6 +309,9 @@ FIELDS = [
     ("packet_mode",        "u8",    lambda v: v in (0, 1),       "0:double packet 1:single packet"),
     ("disconnect_on_dock", "u8",    lambda v: v in (0, 1),       "0/1 (drop the BT link while the controller sits on a charger/dock)"),
     ("sleep_on_dock",      "u8",    lambda v: v in (0, 1),       "0/1 (suspend host PC when the controller sits on a dock)"),
+    ("touchpad_mouse",     "u8",    lambda v: v in (0, 1, 2),    "0:off 1:on 2:on, touchpad hidden from the game"),
+    # 0 is what older firmware reads back as; the firmware turns it into 8.
+    ("touchpad_sensitivity", "u8",  lambda v: 0 <= v <= 20,      "[1, 20] pointer speed (default 8)"),
 ]
 FIELD_NAMES = [f[0] for f in FIELDS]
 # Little-endian, no padding -- matches __attribute__((packed)) Config_body.
@@ -540,8 +575,10 @@ def cmd_set(args):
 
 def parse_button(raw, *, source):
     key = normalize_button_name(raw)
+    if not source and key in MOUSE_TARGET_NAME_TO_ID:
+        return MOUSE_TARGET_NAME_TO_ID[key]
     if key not in BUTTON_NAME_TO_ID:
-        valid_names = BUTTON_NAMES[:-1] if source else BUTTON_NAMES + ("NoMap",)
+        valid_names = BUTTON_NAMES[:-1] if source else REMAP_TARGET_NAMES + ("NoMap",)
         valid = ", ".join(valid_names)
         sys.exit(f"Unknown button '{raw}'. Valid buttons: {valid}.")
     button_id = BUTTON_NAME_TO_ID[key]
@@ -551,7 +588,7 @@ def parse_button(raw, *, source):
 
 
 def button_name(button_id):
-    return BUTTON_NAMES[button_id] if 0 <= button_id < BUTTON_COUNT else f"Invalid({button_id})"
+    return REMAP_TARGET_NAMES[button_id] if 0 <= button_id < REMAP_TARGET_COUNT else f"Invalid({button_id})"
 
 
 def parse_remap_assignment(token):
@@ -694,7 +731,7 @@ def normalize_layers(layers):
     for number in LAYER_NUMBERS:
         start = layer_offset(number) + LAYER_HOLD_BYTES
         for source in range(BUTTON_REMAP_COUNT):
-            if layers[start + source] > BUTTON_COUNT - 1 or source in held:
+            if layers[start + source] >= REMAP_TARGET_COUNT or source in held:
                 layers[start + source] = source
     return layers
 
@@ -856,7 +893,7 @@ def shortcut_slot_valid(shortcut):
     if action == SHORTCUT_ACTION_CONSUMER:
         usage = payload[0] | (payload[1] << 8)
         return 0 < usage <= CONSUMER_USAGE_MAX
-    return action == SHORTCUT_ACTION_BT_DISCONNECT
+    return action in SHORTCUT_FIRMWARE_ACTIONS
 
 
 def print_shortcuts(button, indent="  "):
@@ -878,8 +915,8 @@ def print_shortcuts(button, indent="  "):
             triggers += "@modifier_hold"
         elif flags & SHORTCUT_FLAG_HOLD:
             triggers += "@hold"
-        if action == SHORTCUT_ACTION_BT_DISCONNECT:
-            output = "bt_disconnect"
+        if action in SHORTCUT_FIRMWARE_ACTIONS:
+            output = SHORTCUT_FIRMWARE_ACTIONS[action]
         elif action == SHORTCUT_ACTION_CONSUMER:
             output = consumer_name(payload[0] | (payload[1] << 8))
         else:
@@ -961,11 +998,11 @@ def parse_shortcut_assignment(token):
         sys.exit("A shortcut needs one button (tap trigger) or two buttons (chord).")
 
     action_name = normalize_button_name(output_raw)
-    if mode and (action_name in CONSUMER_NAMES or action_name in ("btdisconnect", "disconnect")):
+    if mode and (action_name in CONSUMER_NAMES or action_name in SHORTCUT_FIRMWARE_ACTION_NAMES):
         sys.exit(f"@{mode} supports keyboard keys and keyboard shortcuts only.")
-    if action_name in ("btdisconnect", "disconnect"):
+    if action_name in SHORTCUT_FIRMWARE_ACTION_NAMES:
         return slot, (trigger_ids[0], trigger_ids[1],
-                      SHORTCUT_ACTION_BT_DISCONNECT, [0] * SHORTCUT_PAYLOAD_SIZE, flags)
+                      SHORTCUT_FIRMWARE_ACTION_NAMES[action_name], [0] * SHORTCUT_PAYLOAD_SIZE, flags)
     if action_name in CONSUMER_NAMES:
         # Consumer usages are standalone; the HID consumer report carries no modifiers.
         usage = CONSUMER_NAMES[action_name]

@@ -8,6 +8,7 @@
 #include "config.h"
 #include "tusb.h"
 #include "pico/time.h"
+#include "touchpad_mouse.h"
 #include "utils.h"
 
 // Kept outside the ENABLE_WAKE_HID guard below: config_load() normalizes the
@@ -47,6 +48,7 @@ bool shortcut_slot_valid(const ButtonShortcut &shortcut) {
             return shortcut.consumer.usage != 0 &&
                    shortcut.consumer.usage <= SHORTCUT_CONSUMER_USAGE_MAX;
         case ShortcutActionBtDisconnect:
+        case ShortcutActionToggleTouchpadMouse:
             return true;
     }
     return false;
@@ -385,6 +387,10 @@ static void dispatch_pending() {
                 break;
             case ShortcutActionBtDisconnect:
                 handled = bt_disconnect();
+                break;
+            case ShortcutActionToggleTouchpadMouse:
+                touchpad_mouse_toggle();
+                handled = true;
                 break;
         }
         if (handled) {

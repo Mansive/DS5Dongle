@@ -40,7 +40,18 @@ struct __attribute__((packed)) Config_body {
     uint8_t packet_mode; // 0: double packet(default), 1: single packet
     uint8_t disconnect_on_dock; // bool: 0 disable(default), 1 enable
     uint8_t sleep_on_dock; // bool: 0 disable(default), 1 enable (suspend host PC on dock)
+    uint8_t touchpad_mouse; // TouchpadMouseMode: 0 off (default), 1 on, 2 on and touch hidden from the game
+    uint8_t touchpad_sensitivity; // [1,20], default 8; 0 reads as "unset" and becomes the default
 };
+
+enum TouchpadMouseMode : uint8_t {
+    TouchpadMouseOff = 0,
+    TouchpadMouseOn,
+    TouchpadMouseHideTouch,
+};
+constexpr uint8_t TOUCHPAD_SENSITIVITY_MIN = 1;
+constexpr uint8_t TOUCHPAD_SENSITIVITY_MAX = 20;
+constexpr uint8_t TOUCHPAD_SENSITIVITY_DEFAULT = 8;
 
 static_assert(sizeof(Config_body) + 1 <= 63); // 0xF6 funcid + body
 

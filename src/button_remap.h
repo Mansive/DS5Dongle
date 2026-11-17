@@ -38,6 +38,11 @@ uint32_t button_layer_hold_mask(const ButtonLayer &layer);
 
 struct USBGetStateData;
 void button_remap_apply(USBGetStateData& state_data);
+// Mouse buttons (bit 0 = MouseLeft ... bit 4 = MouseForward) held by sources
+// mapped to mouse targets, as of the last button_remap_apply() call.
+uint8_t button_remap_mouse_buttons();
+// Whether the base table or any layer maps a button to a mouse target.
+bool button_remap_uses_mouse();
 // Forget which layer held buttons are latched to (disconnect, layer config change).
 void button_remap_reset();
 

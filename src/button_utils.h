@@ -36,7 +36,19 @@ enum ButtonId : uint8_t {
     ButtonRightPaddle,
 
     Disable,
+
+    // Remap targets only (never sources or shortcut triggers): mouse buttons,
+    // sent on the consumer HID interface as Report ID 3.
+    MouseLeft,
+    MouseRight,
+    MouseMiddle,
+    MouseBack,
+    MouseForward,
+
+    RemapTargetCount,
 };
+
+static_assert(RemapTargetCount - MouseLeft == 5, "mouse report carries 5 button bits");
 
 bool button_is_pressed(const USBGetStateData& state_data, uint8_t button);
 
