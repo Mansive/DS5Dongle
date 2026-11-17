@@ -1,4 +1,4 @@
-"""Host regression for the button layer: python tests/test_layer.py (requires g++ on PATH)."""
+"""Host regression for the button layers: python tests/test_layer.py (requires g++ on PATH)."""
 import importlib.util
 from pathlib import Path
 import re
@@ -31,91 +31,72 @@ def extract_function(text, signature):
 
 
 class LayerToolTests(unittest.TestCase):
-    def test_default_and_normalize(self):
-        layer = tool.default_layer()
-        self.assertEqual(len(layer), tool.LAYER_SIZE)
-        self.assertEqual(layer[0], tool.LAYER_DISABLED)
-        self.assertEqual(bytes(tool.normalize_layer(b'\xff' * tool.LAYER_SIZE)), bytes(layer))
-        odd = bytearray(layer)
-        odd[0] = B['dpadnorth']
-        odd[1 + B['cross']] = 200
-        self.assertEqual(bytes(tool.normalize_layer(odd)), bytes(layer))
-
-    def test_face_dpad_assignments(self):
-        layer = tool.parse_layer_assignments(
-            ['modifier=LeftPaddle'] + list(tool.FACE_DPAD_PRESET), tool.default_layer())
-        self.assertEqual(layer[0], B['leftpaddle'])
-        self.assertEqual(layer[1 + B['triangle']], B['dpadnorth'])
-        self.assertEqual(layer[1 + B['cross']], B['dpadsouth'])
-        self.assertEqual(layer[1 + B['square']], B['dpadwest'])
-        self.assertEqual(layer[1 + B['circle']], B['dpadeast'])
-        self.assertEqual(bytes(tool.normalize_layer(layer)), bytes(layer))
-        cleared = tool.parse_layer_assignments(['cross=nomap', 'modifier=off'], layer)
-        self.assertEqual(cleared[0], tool.LAYER_DISABLED)
-        self.assertEqual(cleared[1 + B['cross']], B['cross'])
-
-    def test_rejections(self):
-        for tokens in (['modifier=up'], ['modifier=dpadsouth'], ['modifier=LeftPaddle', 'leftpaddle=l1'],
-                       ['cross'], ['modifier=nonsense']):
-            with self.assertRaises(SystemExit, msg=tokens):
-                tool.parse_layer_assignments(tokens, tool.default_layer())
-
-
-class LayerSetToolTests(unittest.TestCase):
-    """Two layer buttons: the 0xFC payload followed by the 0xFD payload."""
-
-    def table(self, layers, key):
-        offset = tool.LAYER_TABLE_OFFSETS[key]
-        return layers[offset:offset + tool.BUTTON_REMAP_COUNT]
+    """Three layers, each a 3-byte hold bitmask and a 28-entry table."""
 
     def test_sizes_match_firmware(self):
-        self.assertEqual(tool.LAYER_SIZE, 29)
-        self.assertEqual(tool.LAYER2_SIZE, 57)
-        self.assertLessEqual(tool.LAYER2_SIZE, tool.SET_DATA_LEN)
+        self.assertEqual(tool.LAYER_ENTRY_SIZE, 31)
+        self.assertEqual(tool.LAYERS_SIZE, 93)
+        self.assertLessEqual(tool.LAYER_REPORT1_SIZE, tool.SET_DATA_LEN)
         header = (ROOT / 'src/button_remap.h').read_text(encoding='utf-8')
-        self.assertIn('combo_remap[BUTTON_REMAP_COUNT]', header)
-        cmd = (ROOT / 'src/cmd.cpp').read_text(encoding='utf-8')
-        self.assertIn('report_id == 0xfd', cmd)
+        self.assertIn('BUTTON_LAYER_COUNT = 3', header)
+        self.assertIn('BUTTON_LAYER_HOLD_BYTES = 3', header)
 
-    def test_buttons_and_tables(self):
-        layers = tool.parse_layer_assignments(['buttons=LeftPaddle,RightPaddle'], tool.default_layers())
-        self.assertEqual(tool.layer_buttons(layers), (B['leftpaddle'], B['rightpaddle']))
-        layers = tool.parse_layer_assignments(list(tool.FACE_DPAD_PRESET), layers, 'a')
-        layers = tool.parse_layer_assignments(['cross=l1'], layers, 'b')
-        layers = tool.parse_layer_assignments(['cross=r3', 'circle=disable'], layers, 'ab')
-        self.assertEqual(self.table(layers, 'a')[B['cross']], B['dpadsouth'])
-        self.assertEqual(self.table(layers, 'b')[B['cross']], B['l1'])
-        self.assertEqual(self.table(layers, 'ab')[B['cross']], B['r3'])
-        self.assertEqual(self.table(layers, 'ab')[B['square']], B['square'])  # no merge from A
+    def test_default_and_normalize(self):
+        layers = tool.default_layers()
+        self.assertEqual(len(layers), tool.LAYERS_SIZE)
+        for number in tool.LAYER_NUMBERS:
+            self.assertEqual(tool.layer_hold(layers, number), [])
+            self.assertEqual(bytes(tool.layer_table(layers, number)), bytes(range(tool.BUTTON_REMAP_COUNT)))
         self.assertEqual(bytes(tool.normalize_layers(layers)), bytes(layers))
-        # b=off keeps the tables, clears only the button.
-        off = tool.parse_layer_assignments(['b=off'], layers)
-        self.assertEqual(tool.layer_buttons(off)[1], tool.LAYER_DISABLED)
-        self.assertEqual(self.table(off, 'b')[B['cross']], B['l1'])
+
+    def test_hold_and_tables(self):
+        layers = tool.parse_layer_assignments(['hold=LeftPaddle'] + list(tool.FACE_DPAD_PRESET),
+                                              tool.default_layers(), 1)
+        layers = tool.parse_layer_assignments(['hold=RightPaddle', 'cross=l1'], layers, 2)
+        layers = tool.parse_layer_assignments(['hold=LeftPaddle+RightPaddle', 'cross=r3', 'circle=disable'],
+                                              layers, 3)
+        self.assertEqual(tool.layer_hold(layers, 1), [B['leftpaddle']])
+        self.assertEqual(tool.layer_hold(layers, 3), [B['leftpaddle'], B['rightpaddle']])
+        self.assertEqual(tool.layer_table(layers, 1)[B['cross']], B['dpadsouth'])
+        self.assertEqual(tool.layer_table(layers, 2)[B['cross']], B['l1'])
+        self.assertEqual(tool.layer_table(layers, 3)[B['cross']], B['r3'])
+        self.assertEqual(tool.layer_table(layers, 3)[B['square']], B['square'])  # no merge from layer 1
+        self.assertEqual(bytes(tool.normalize_layers(layers)), bytes(layers))
+        # Hold bitmask encoding: bit n = ButtonId Square + n, little endian.
+        offset = tool.layer_offset(3)
+        bits = (1 << (B['leftpaddle'] - B['square'])) | (1 << (B['rightpaddle'] - B['square']))
+        self.assertEqual(bytes(layers[offset:offset + 3]), bits.to_bytes(3, 'little'))
+        # hold=off keeps the table.
+        off = tool.parse_layer_assignments(['hold=off'], layers, 2)
+        self.assertEqual(tool.layer_hold(off, 2), [])
+        self.assertEqual(tool.layer_table(off, 2)[B['cross']], B['l1'])
 
     def test_normalize_mirrors_firmware(self):
         layers = tool.default_layers()
-        layers[0] = B['leftpaddle']
-        layers[tool.LAYER_BUTTON_OFFSETS['b']] = B['leftpaddle']  # duplicate -> B off
-        self.assertEqual(tool.layer_buttons(tool.normalize_layers(layers))[1], tool.LAYER_DISABLED)
-        layers[tool.LAYER_BUTTON_OFFSETS['b']] = B['rightpaddle']
-        layers[tool.LAYER_TABLE_OFFSETS['ab'] + B['leftpaddle']] = B['l1']  # layer button -> identity
-        layers[tool.LAYER_TABLE_OFFSETS['a'] + B['rightpaddle']] = B['l2']
-        layers[tool.LAYER_TABLE_OFFSETS['b'] + B['cross']] = 200  # out of range -> identity
+        tool.set_layer_hold(layers, 1, [B['l1'], B['r1']])
+        tool.set_layer_hold(layers, 3, [B['r1'], B['l1']])  # duplicate -> layer 3 off
+        layers[tool.layer_offset(2) + 2] |= 0xF0  # bits past RightPaddle are dropped
+        start = tool.layer_offset(2) + tool.LAYER_HOLD_BYTES
+        layers[start + B['l1']] = B['l2']  # layer button -> identity
+        layers[start + B['cross']] = 200  # out of range -> identity
         normalized = tool.normalize_layers(layers)
-        self.assertEqual(self.table(normalized, 'ab')[B['leftpaddle']], B['leftpaddle'])
-        self.assertEqual(self.table(normalized, 'a')[B['rightpaddle']], B['rightpaddle'])
-        self.assertEqual(self.table(normalized, 'b')[B['cross']], B['cross'])
-        # Erased flash for the B part reads as "off, identity".
-        ff = bytes(tool.default_layer()) + b'\xff' * tool.LAYER2_SIZE
-        self.assertEqual(bytes(tool.normalize_layers(ff)), bytes(tool.default_layers()))
+        self.assertEqual(tool.layer_hold(normalized, 3), [])
+        self.assertEqual(tool.layer_hold(normalized, 2), [])
+        self.assertEqual(tool.layer_table(normalized, 2)[B['l1']], B['l1'])
+        self.assertEqual(tool.layer_table(normalized, 2)[B['cross']], B['cross'])
 
-    def test_layer_set_rejections(self):
-        for tokens, table in ((['buttons=LeftPaddle,LeftPaddle'], 'a'),
-                              (['buttons=LeftPaddle,RightPaddle', 'rightpaddle=l1'], 'ab'),
-                              (['b=up'], 'a'), (['buttons=a,b,c'], 'a'), (['cross=l1'], 'x')):
+    def test_rejections(self):
+        one = tool.parse_layer_assignments(['hold=LeftPaddle'], tool.default_layers(), 1)
+        for tokens, layers, number in ((['hold=up'], tool.default_layers(), 1),
+                                       (['hold=dpadsouth'], tool.default_layers(), 1),
+                                       (['hold=LeftPaddle', 'leftpaddle=l1'], tool.default_layers(), 1),
+                                       (['leftpaddle=l1'], one, 2),  # a layer button in any layer
+                                       (['hold=LeftPaddle'], one, 2),  # same hold set as layer 1
+                                       (['cross'], tool.default_layers(), 1),
+                                       (['hold=nonsense'], tool.default_layers(), 1),
+                                       (['cross=l1'], tool.default_layers(), 4)):
             with self.assertRaises(SystemExit, msg=tokens):
-                tool.parse_layer_assignments(tokens, tool.default_layers(), table)
+                tool.parse_layer_assignments(tokens, layers, number)
 
 
 class BootselCommandTests(unittest.TestCase):
@@ -146,25 +127,25 @@ class LayerFirmwareTests(unittest.TestCase):
 #include <cstdint>
 #include <cstdio>
 #include <cstring>
+#include <cstddef>
 #include "button_remap.h"
 struct Button {
     uint8_t button_remap[BUTTON_REMAP_COUNT];
-    ButtonLayer layer;
-    uint8_t guard_a = 0x5A; // detects writes past the first layer
-    ButtonLayer2 layer2;
-    uint8_t guard = 0x5A; // detects writes past the second layer
+    ButtonLayers layers;
+    uint8_t guard = 0x5A; // detects writes past the last layer
 };
 struct Storage { Button button; };
 inline Storage storage;
 inline Button& get_button() { return storage.button; }
+constexpr uint16_t BUTTON_LAYER_REPORT1_SIZE = 2 * sizeof(ButtonLayer);
+constexpr uint16_t BUTTON_LAYER_REPORT2_SIZE = sizeof(ButtonLayer);
 void button_layer_valid();
 ''', encoding='utf-8')
             # The real validation/setter from config.cpp.
             functions = (extract_function(config, 'void button_layer_valid() {') +
-                         extract_function(config, 'void set_button_layer(') +
-                         extract_function(config, 'void set_button_layer2('))
+                         extract_function(config, 'void set_button_layers('))
             (tmp / 'config_layer.cpp').write_text(
-                '#include "config.h"\n#include "button_utils.h"\n#include <initializer_list>\n' + functions,
+                '#include "config.h"\n#include "button_utils.h"\n' + functions,
                 encoding='utf-8')
             shutil.copyfile(ROOT / 'tests/layer_remap_test.cpp', tmp / 'test.cpp')
             exe = tmp / 'test.exe'

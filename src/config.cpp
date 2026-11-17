@@ -6,7 +6,6 @@
 
 #include <cmath>
 #include <cstring>
-#include <initializer_list>
 
 #include "bt.h"
 #include "button_shortcut.h"
@@ -163,30 +162,45 @@ void config_valid() {
 }
 
 void button_layer_valid() {
-    auto &layer = storage.button.layer;
-    auto &layer2 = storage.button.layer2;
-    // Only real buttons can be layer buttons: D-pad directions are matched as
-    // exact hat values, which makes them unreliable to hold as a modifier.
-    for (uint8_t *modifier : {&layer.modifier, &layer2.modifier}) {
-        if (*modifier != BUTTON_LAYER_DISABLED && (*modifier < ButtonSquare || *modifier >= Disable)) {
-            printf("[Config] Button layer modifier is invalid %u\n", *modifier);
-            *modifier = BUTTON_LAYER_DISABLED;
+    auto &layers = storage.button.layers;
+    if (layers.format != BUTTON_LAYER_FORMAT) {
+        // 0xFF from older firmware, or an earlier layer layout: all layers off.
+        printf("[Config] Button layers reset (format %u)\n", layers.format);
+        layers.format = BUTTON_LAYER_FORMAT;
+        for (auto &layer : layers.layer) {
+            memset(layer.hold, 0, sizeof(layer.hold));
+            for (uint8_t i = 0; i < BUTTON_REMAP_COUNT; i++) layer.remap[i] = i;
         }
     }
-    if (layer2.modifier != BUTTON_LAYER_DISABLED && layer2.modifier == layer.modifier) {
-        printf("[Config] Layer button B duplicates layer button A\n");
-        layer2.modifier = BUTTON_LAYER_DISABLED;
-    }
-    for (uint8_t *table : {layer.remap, layer2.remap, layer2.combo_remap}) {
-        for (uint8_t i = 0; i < BUTTON_REMAP_COUNT; i++) {
-            if (table[i] > Disable) {
-                table[i] = i; // Also the 0xFF left by flash from older firmware.
+    // Only real buttons can be hold buttons: D-pad directions are matched as
+    // exact hat values, which makes them unreliable to hold.
+    constexpr uint32_t valid_hold = (1u << (Disable - ButtonSquare)) - 1;
+    uint32_t layer_buttons = 0; // indexed by ButtonId
+    for (uint8_t n = 0; n < BUTTON_LAYER_COUNT; n++) {
+        auto &layer = layers.layer[n];
+        uint32_t hold = layer.hold[0] | static_cast<uint32_t>(layer.hold[1]) << 8 |
+                        static_cast<uint32_t>(layer.hold[2]) << 16;
+        if (hold & ~valid_hold) {
+            printf("[Config] Button layer %u hold set is invalid %06lx\n", n + 1, static_cast<unsigned long>(hold));
+            hold &= valid_hold;
+        }
+        // Two layers with the same hold set: the earlier layer keeps it.
+        for (uint8_t m = 0; m < n && hold != 0; m++) {
+            if (button_layer_hold_mask(layers.layer[m]) == hold << ButtonSquare) {
+                printf("[Config] Button layer %u duplicates layer %u\n", n + 1, m + 1);
+                hold = 0;
             }
         }
-        // Layer buttons are consumed, never remapped, in every layer.
-        for (const uint8_t modifier : {layer.modifier, layer2.modifier}) {
-            if (modifier != BUTTON_LAYER_DISABLED) {
-                table[modifier] = modifier;
+        layer.hold[0] = hold & 0xFF;
+        layer.hold[1] = (hold >> 8) & 0xFF;
+        layer.hold[2] = (hold >> 16) & 0xFF;
+        layer_buttons |= hold << ButtonSquare;
+    }
+    for (auto &layer : layers.layer) {
+        for (uint8_t i = 0; i < BUTTON_REMAP_COUNT; i++) {
+            // Layer buttons are consumed, never remapped, in every layer.
+            if (layer.remap[i] > Disable || (layer_buttons & (1u << i))) {
+                layer.remap[i] = i;
             }
         }
     }
@@ -282,19 +296,15 @@ void set_button_remap(const uint8_t *new_remap, const uint16_t len) {
     button_remap_valid();
 }
 
-void set_button_layer(const uint8_t *new_layer, const uint16_t len) {
-    button_remap_reset(); // Held buttons must not keep a latch from the old layer.
-    constexpr auto room = sizeof(Button::layer);
-    const auto copy_len = len < room ? len : room;
-    memcpy(&storage.button.layer, new_layer, copy_len);
-    button_layer_valid();
-}
-
-void set_button_layer2(const uint8_t *new_layer, const uint16_t len) {
-    button_remap_reset();
-    constexpr auto room = sizeof(Button::layer2);
-    const auto copy_len = len < room ? len : room;
-    memcpy(&storage.button.layer2, new_layer, copy_len);
+void set_button_layers(const uint8_t first_layer, const uint8_t *data, const uint16_t len) {
+    button_remap_reset(); // Held buttons must not keep a latch from the old layers.
+    if (first_layer >= BUTTON_LAYER_COUNT) {
+        return;
+    }
+    const size_t room = first_layer == 0 ? BUTTON_LAYER_REPORT1_SIZE
+                                         : (BUTTON_LAYER_COUNT - first_layer) * sizeof(ButtonLayer);
+    const size_t copy_len = len < room ? len : room;
+    memcpy(&storage.button.layers.layer[first_layer], data, copy_len);
     button_layer_valid();
 }
 

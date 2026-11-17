@@ -1,4 +1,4 @@
-// Host test for src/button_remap.cpp (button layer). Built by tests/test_layer.py
+// Host test for src/button_remap.cpp (button layers). Built by tests/test_layer.py
 // against the real USBGetStateData layout; see that file for the stubs.
 #include <cstdio>
 #include <cstring>
@@ -9,8 +9,7 @@
 #include "config.h"
 #include "utils.h"
 
-void set_button_layer(const uint8_t *new_layer, uint16_t len);
-void set_button_layer2(const uint8_t *new_layer, uint16_t len);
+void set_button_layers(uint8_t first_layer, const uint8_t *data, uint16_t len);
 
 static int failures = 0;
 #define CHECK(cond)                                                              \
@@ -97,41 +96,49 @@ static USBGetStateData frame(std::initializer_list<uint8_t> held, Direction dpad
     return first;
 }
 
+static ButtonLayer &layer(uint8_t n) { return get_button().layers.layer[n]; }
+
+// Set the hold buttons of layer n (0-based).
+static void set_hold(uint8_t n, std::initializer_list<uint8_t> hold) {
+    uint32_t bits = 0;
+    for (const uint8_t b : hold) bits |= 1u << (b - ButtonSquare);
+    layer(n).hold[0] = bits & 0xFF;
+    layer(n).hold[1] = (bits >> 8) & 0xFF;
+    layer(n).hold[2] = (bits >> 16) & 0xFF;
+}
+
 static void reset_config() {
     Button &button = get_button();
+    button.layers.format = BUTTON_LAYER_FORMAT;
     for (uint8_t i = 0; i < BUTTON_REMAP_COUNT; i++) {
         button.button_remap[i] = i;
-        button.layer.remap[i] = i;
-        button.layer2.remap[i] = i;
-        button.layer2.combo_remap[i] = i;
+        for (auto &l : button.layers.layer) l.remap[i] = i;
     }
-    button.layer.modifier = BUTTON_LAYER_DISABLED;
-    button.layer2.modifier = BUTTON_LAYER_DISABLED;
+    for (uint8_t n = 0; n < BUTTON_LAYER_COUNT; n++) set_hold(n, {});
     button_remap_reset();
 }
 
-// A = left paddle (face buttons -> D-pad), B = right paddle (Cross -> L1),
-// A+B (Cross -> R3, Circle -> Disable).
+// Layer 1 = left paddle (face buttons -> D-pad), layer 2 = right paddle
+// (Cross -> L1), layer 3 = both paddles (Cross -> R3, Circle -> Disable).
 static void combo_layers() {
-    Button &button = get_button();
-    button.layer.modifier = ButtonLeftPaddle;
-    button.layer.remap[ButtonTriangle] = DPadNorth;
-    button.layer.remap[ButtonCross] = DPadSouth;
-    button.layer.remap[ButtonSquare] = DPadWest;
-    button.layer.remap[ButtonCircle] = DPadEast;
-    button.layer2.modifier = ButtonRightPaddle;
-    button.layer2.remap[ButtonCross] = ButtonL1;
-    button.layer2.combo_remap[ButtonCross] = ButtonR3;
-    button.layer2.combo_remap[ButtonCircle] = Disable;
+    set_hold(0, {ButtonLeftPaddle});
+    layer(0).remap[ButtonTriangle] = DPadNorth;
+    layer(0).remap[ButtonCross] = DPadSouth;
+    layer(0).remap[ButtonSquare] = DPadWest;
+    layer(0).remap[ButtonCircle] = DPadEast;
+    set_hold(1, {ButtonRightPaddle});
+    layer(1).remap[ButtonCross] = ButtonL1;
+    set_hold(2, {ButtonLeftPaddle, ButtonRightPaddle});
+    layer(2).remap[ButtonCross] = ButtonR3;
+    layer(2).remap[ButtonCircle] = Disable;
 }
 
 static void face_dpad_layer(uint8_t modifier = ButtonLeftPaddle) {
-    Button &button = get_button();
-    button.layer.modifier = modifier;
-    button.layer.remap[ButtonTriangle] = DPadNorth;
-    button.layer.remap[ButtonCross] = DPadSouth;
-    button.layer.remap[ButtonSquare] = DPadWest;
-    button.layer.remap[ButtonCircle] = DPadEast;
+    set_hold(0, {modifier});
+    layer(0).remap[ButtonTriangle] = DPadNorth;
+    layer(0).remap[ButtonCross] = DPadSouth;
+    layer(0).remap[ButtonSquare] = DPadWest;
+    layer(0).remap[ButtonCircle] = DPadEast;
 }
 
 static void test_identity_is_untouched() {
@@ -246,10 +253,10 @@ static void test_dpad_combining() {
 static void test_swap_and_disable_in_layer() {
     reset_config();
     Button &button = get_button();
-    button.layer.modifier = ButtonLeftPaddle;
-    button.layer.remap[ButtonCross] = DPadSouth;
-    button.layer.remap[ButtonSquare] = ButtonCross;
-    button.layer.remap[ButtonL1] = Disable;
+    set_hold(0, {ButtonLeftPaddle});
+    button.layers.layer[0].remap[ButtonCross] = DPadSouth;
+    button.layers.layer[0].remap[ButtonSquare] = ButtonCross;
+    button.layers.layer[0].remap[ButtonL1] = Disable;
 
     auto out = frame({ButtonLeftPaddle, ButtonSquare, ButtonCross, ButtonL1});
     CHECK(out.DPad == South && buttons(out) == mask({ButtonCross}));
@@ -260,7 +267,7 @@ static void test_layer_inherits_base() {
     Button &button = get_button();
     button.button_remap[ButtonSquare] = ButtonTriangle;
     face_dpad_layer();
-    button.layer.remap[ButtonSquare] = ButtonSquare; // no layer entry
+    button.layers.layer[0].remap[ButtonSquare] = ButtonSquare; // no layer entry
 
     auto out = frame({ButtonLeftPaddle, ButtonSquare});
     CHECK(buttons(out) == mask({ButtonTriangle}) && out.DPad == None);
@@ -310,62 +317,88 @@ static void test_resets() {
     face_dpad_layer();
     out = frame({ButtonLeftPaddle, ButtonCross});
     CHECK(out.DPad == South);
-    uint8_t disabled[1 + BUTTON_REMAP_COUNT];
-    disabled[0] = BUTTON_LAYER_DISABLED;
-    for (uint8_t i = 0; i < BUTTON_REMAP_COUNT; i++) disabled[1 + i] = i;
-    set_button_layer(disabled, sizeof(disabled));
+    uint8_t disabled[sizeof(ButtonLayer)] = {0, 0, 0};
+    for (uint8_t i = 0; i < BUTTON_REMAP_COUNT; i++) disabled[BUTTON_LAYER_HOLD_BYTES + i] = i;
+    set_button_layers(0, disabled, sizeof(disabled));
     out = frame({ButtonCross});
     CHECK(out.DPad == None && buttons(out) == mask({ButtonCross}));
 }
 
+static uint32_t hold_bits(uint8_t n) {
+    return layer(n).hold[0] | static_cast<uint32_t>(layer(n).hold[1]) << 8 |
+           static_cast<uint32_t>(layer(n).hold[2]) << 16;
+}
+
 static void test_validation() {
     reset_config();
-    ButtonLayer &layer = get_button().layer;
+    Button &button = get_button();
 
-    // Erased flash / old firmware: all 0xFF.
-    uint8_t ff[sizeof(ButtonLayer)];
-    std::memset(ff, 0xFF, sizeof(ff));
-    set_button_layer(ff, sizeof(ff));
-    CHECK(layer.modifier == BUTTON_LAYER_DISABLED);
-    for (uint8_t i = 0; i < BUTTON_REMAP_COUNT; i++) CHECK(layer.remap[i] == i);
-
-    // D-pad directions and out-of-range ids are not valid modifiers.
-    const uint8_t bad_modifiers[] = {DPadNorth, DPadNorthWest, Disable, 0x80};
-    for (const uint8_t bad : bad_modifiers) {
-        uint8_t data[1] = {bad};
-        set_button_layer(data, sizeof(data));
-        CHECK(layer.modifier == BUTTON_LAYER_DISABLED);
+    // Erased flash / older firmware (0xFF) or an earlier layout: all layers off.
+    std::memset(&button.layers, 0xFF, sizeof(button.layers));
+    button_layer_valid();
+    CHECK(button.layers.format == BUTTON_LAYER_FORMAT);
+    for (uint8_t n = 0; n < BUTTON_LAYER_COUNT; n++) {
+        CHECK(hold_bits(n) == 0);
+        for (uint8_t i = 0; i < BUTTON_REMAP_COUNT; i++) CHECK(layer(n).remap[i] == i);
     }
+    std::memset(&button.layers, 0x19, sizeof(button.layers)); // old layout started with a ButtonId
+    button_layer_valid();
+    CHECK(hold_bits(0) == 0 && layer(0).remap[ButtonCross] == ButtonCross);
 
-    // Valid write; invalid entries reset; the modifier's own entry is forced to identity.
-    uint8_t data[sizeof(ButtonLayer)];
-    data[0] = ButtonLeftPaddle;
-    for (uint8_t i = 0; i < BUTTON_REMAP_COUNT; i++) data[1 + i] = i;
-    data[1 + ButtonCross] = DPadSouth;
-    data[1 + ButtonSquare] = 200;
-    data[1 + ButtonLeftPaddle] = ButtonL1;
-    data[1 + ButtonL2] = Disable;
-    set_button_layer(data, sizeof(data));
-    CHECK(layer.modifier == ButtonLeftPaddle);
-    CHECK(layer.remap[ButtonCross] == DPadSouth);
-    CHECK(layer.remap[ButtonSquare] == ButtonSquare);
-    CHECK(layer.remap[ButtonLeftPaddle] == ButtonLeftPaddle);
-    CHECK(layer.remap[ButtonL2] == Disable);
+    // 0xFC carries layers 1 and 2: bits past RightPaddle are dropped, invalid
+    // entries reset, layer buttons forced to identity in every layer.
+    uint8_t data[2 * sizeof(ButtonLayer)];
+    for (uint8_t n = 0; n < 2; n++) {
+        uint8_t *entry = data + n * sizeof(ButtonLayer);
+        entry[0] = entry[1] = entry[2] = 0;
+        for (uint8_t i = 0; i < BUTTON_REMAP_COUNT; i++) entry[BUTTON_LAYER_HOLD_BYTES + i] = i;
+    }
+    data[2] = 0xF0 | (1u << (ButtonLeftPaddle - ButtonSquare - 16)); // junk bits 20-23 + LeftPaddle
+    data[BUTTON_LAYER_HOLD_BYTES + ButtonCross] = DPadSouth;
+    data[BUTTON_LAYER_HOLD_BYTES + ButtonSquare] = 200;
+    data[BUTTON_LAYER_HOLD_BYTES + ButtonL2] = Disable;
+    uint8_t *second = data + sizeof(ButtonLayer);
+    const uint32_t l1_r1 = mask({ButtonL1, ButtonR1}) >> ButtonSquare;
+    second[0] = l1_r1 & 0xFF;
+    second[1] = (l1_r1 >> 8) & 0xFF;
+    second[2] = (l1_r1 >> 16) & 0xFF;
+    second[BUTTON_LAYER_HOLD_BYTES + ButtonLeftPaddle] = ButtonL3; // a layer button
+    set_button_layers(0, data, sizeof(data));
+    CHECK(button_layer_hold_mask(layer(0)) == mask({ButtonLeftPaddle}));
+    CHECK(button_layer_hold_mask(layer(1)) == mask({ButtonL1, ButtonR1}));
+    CHECK(layer(0).remap[ButtonCross] == DPadSouth);
+    CHECK(layer(0).remap[ButtonSquare] == ButtonSquare);
+    CHECK(layer(0).remap[ButtonL2] == Disable);
+    CHECK(layer(1).remap[ButtonLeftPaddle] == ButtonLeftPaddle);
+
+    // 0xFD carries layer 3; a hold set equal to an earlier layer's is dropped.
+    uint8_t third[sizeof(ButtonLayer)];
+    third[0] = second[0];
+    third[1] = second[1];
+    third[2] = 0;
+    for (uint8_t i = 0; i < BUTTON_REMAP_COUNT; i++) third[BUTTON_LAYER_HOLD_BYTES + i] = i;
+    third[BUTTON_LAYER_HOLD_BYTES + ButtonCross] = ButtonR3;
+    set_button_layers(2, third, sizeof(third));
+    CHECK(hold_bits(2) == 0);
+    CHECK(layer(2).remap[ButtonCross] == ButtonR3); // the table is kept
 
     // A short write only changes the bytes it carries.
-    uint8_t modifier_only[1] = {ButtonRightPaddle};
-    set_button_layer(modifier_only, sizeof(modifier_only));
-    CHECK(layer.modifier == ButtonRightPaddle);
-    CHECK(layer.remap[ButtonCross] == DPadSouth);
+    uint8_t hold_only[1] = {1u << (ButtonTriangle - ButtonSquare)};
+    set_button_layers(2, hold_only, sizeof(hold_only));
+    CHECK(button_layer_hold_mask(layer(2)) == mask({ButtonTriangle}));
+    CHECK(layer(2).remap[ButtonCross] == ButtonR3);
+    CHECK(layer(0).remap[ButtonTriangle] == ButtonTriangle); // now a layer button everywhere
 
-    // Oversized write (63-byte report) is clamped to the struct.
+    // Oversized writes (63-byte reports) are clamped: 0xFC never reaches
+    // layer 3, 0xFD never runs past it.
     uint8_t big[63];
-    std::memset(big, 0xAB, sizeof(big));
-    big[0] = ButtonLeftPaddle;
-    for (uint8_t i = 0; i < BUTTON_REMAP_COUNT; i++) big[1 + i] = i;
-    set_button_layer(big, sizeof(big));
-    CHECK(layer.modifier == ButtonLeftPaddle);
-    CHECK(get_button().guard_a == 0x5A);
+    std::memset(big, 0, sizeof(big));
+    set_button_layers(0, big, sizeof(big));
+    CHECK(button_layer_hold_mask(layer(2)) == mask({ButtonTriangle}));
+    CHECK(layer(2).remap[ButtonCross] == ButtonR3);
+    set_button_layers(2, big, sizeof(big));
+    CHECK(hold_bits(2) == 0);
+    CHECK(button.guard == 0x5A);
 }
 
 static void test_combo_layers() {
@@ -382,19 +415,19 @@ static void test_combo_layers() {
     out = frame({ButtonLeftPaddle, ButtonRightPaddle, ButtonCross});
     CHECK(buttons(out) == mask({ButtonR3}) && out.DPad == None);
     out = frame({ButtonLeftPaddle, ButtonRightPaddle, ButtonCross, ButtonCircle});
-    CHECK(buttons(out) == mask({ButtonR3}) && out.DPad == None); // Circle disabled in A+B
+    CHECK(buttons(out) == mask({ButtonR3}) && out.DPad == None); // Circle disabled in layer 3
     out = frame({});
     out = frame({ButtonCross});
     CHECK(buttons(out) == mask({ButtonCross}));
     out = frame({});
 
-    // Exact match: A+B does not merge A's table. Square has no A+B entry, so
-    // it falls back to base, not to A's D-pad West.
+    // Exact match: layer 3 does not merge layer 1. Square has no layer 3
+    // entry, so it falls back to base, not to layer 1's D-pad West.
     out = frame({ButtonLeftPaddle, ButtonRightPaddle, ButtonSquare});
     CHECK(buttons(out) == mask({ButtonSquare}) && out.DPad == None);
     out = frame({});
 
-    // Both layer buttons are consumed, alone or together.
+    // Layer buttons are consumed, alone or together.
     out = frame({ButtonLeftPaddle, ButtonRightPaddle});
     CHECK(buttons(out) == 0 && out.DPad == None);
     out = frame({});
@@ -407,24 +440,24 @@ static void test_combo_latching() {
     reset_config();
     combo_layers();
 
-    // Releasing B mid-press keeps Cross on the A+B table until it is released.
+    // Releasing a paddle mid-press keeps Cross on layer 3 until it is released.
     auto out = frame({ButtonLeftPaddle, ButtonRightPaddle, ButtonCross});
     CHECK(buttons(out) == mask({ButtonR3}));
     out = frame({ButtonLeftPaddle, ButtonCross});
     CHECK(buttons(out) == mask({ButtonR3}) && out.DPad == None);
     out = frame({ButtonLeftPaddle});
     out = frame({ButtonLeftPaddle, ButtonCross});
-    CHECK(buttons(out) == 0 && out.DPad == South); // new press uses A now
+    CHECK(buttons(out) == 0 && out.DPad == South); // a new press uses layer 1 now
     out = frame({});
 
-    // Pressing B while a button latched to A is held: the held button stays
-    // on A, a new press uses A+B.
+    // Adding a paddle while a button latched to layer 1 is held: the held
+    // button stays on layer 1, a new press uses layer 3.
     out = frame({ButtonLeftPaddle, ButtonCross});
     CHECK(out.DPad == South);
     out = frame({ButtonLeftPaddle, ButtonRightPaddle, ButtonCross});
     CHECK(out.DPad == South && buttons(out) == 0);
     out = frame({ButtonLeftPaddle, ButtonRightPaddle, ButtonCross, ButtonTriangle});
-    CHECK(out.DPad == South && buttons(out) == mask({ButtonTriangle})); // Triangle: no A+B entry -> base
+    CHECK(out.DPad == South && buttons(out) == mask({ButtonTriangle})); // no layer 3 entry -> base
     out = frame({});
 
     // Pressed before any layer button: base until released.
@@ -434,84 +467,56 @@ static void test_combo_latching() {
     out = frame({});
 }
 
-static void test_layer_b_alone() {
-    // Only layer button B set: B works on its own, A+B is unreachable.
+static void test_chord_only_layer() {
+    // A layer that needs two buttons, with no single-button layers.
     reset_config();
-    combo_layers();
-    get_button().layer.modifier = BUTTON_LAYER_DISABLED;
-    auto out = frame({ButtonRightPaddle, ButtonCross});
-    CHECK(buttons(out) == mask({ButtonL1}));
+    set_hold(0, {ButtonL1, ButtonR1});
+    layer(0).remap[ButtonCross] = ButtonHome;
+
+    auto out = frame({ButtonL1, ButtonR1, ButtonCross});
+    CHECK(buttons(out) == mask({ButtonHome}));
     out = frame({});
-    // The left paddle is a plain button again.
-    out = frame({ButtonLeftPaddle, ButtonRightPaddle, ButtonCross});
-    CHECK(buttons(out) == mask({ButtonLeftPaddle, ButtonL1}));
+    // One of the two is not a match: base, and the hold buttons stay consumed.
+    out = frame({ButtonL1, ButtonCross});
+    CHECK(buttons(out) == mask({ButtonCross}));
+    out = frame({});
+    // Buttons outside every hold set do not break the match.
+    out = frame({ButtonL1, ButtonR1, ButtonLeftPaddle, ButtonCross});
+    CHECK(buttons(out) == mask({ButtonHome, ButtonLeftPaddle}));
     out = frame({});
 }
 
-static void test_validation_layer2() {
+static void test_three_button_layer() {
     reset_config();
-    Button &button = get_button();
-    ButtonLayer2 &layer2 = button.layer2;
+    set_hold(0, {ButtonLeftPaddle});
+    layer(0).remap[ButtonCross] = ButtonL1;
+    set_hold(2, {ButtonLeftPaddle, ButtonRightPaddle, ButtonL3});
+    layer(2).remap[ButtonCross] = ButtonR3;
 
-    // Erased flash / older firmware: all 0xFF.
-    uint8_t ff[sizeof(ButtonLayer2)];
-    std::memset(ff, 0xFF, sizeof(ff));
-    set_button_layer2(ff, sizeof(ff));
-    CHECK(layer2.modifier == BUTTON_LAYER_DISABLED);
-    for (uint8_t i = 0; i < BUTTON_REMAP_COUNT; i++) {
-        CHECK(layer2.remap[i] == i);
-        CHECK(layer2.combo_remap[i] == i);
-    }
+    auto out = frame({ButtonLeftPaddle, ButtonRightPaddle, ButtonL3, ButtonCross});
+    CHECK(buttons(out) == mask({ButtonR3}));
+    out = frame({});
+    // Left + right paddle matches no layer: base.
+    out = frame({ButtonLeftPaddle, ButtonRightPaddle, ButtonCross});
+    CHECK(buttons(out) == mask({ButtonCross}));
+    out = frame({});
+    out = frame({ButtonLeftPaddle, ButtonCross});
+    CHECK(buttons(out) == mask({ButtonL1}));
+    out = frame({});
+}
 
-    // D-pad directions and out-of-range ids are not valid layer buttons.
-    const uint8_t bad_modifiers[] = {DPadSouth, Disable, 0x80};
-    for (const uint8_t bad : bad_modifiers) {
-        uint8_t data[1] = {bad};
-        set_button_layer2(data, sizeof(data));
-        CHECK(layer2.modifier == BUTTON_LAYER_DISABLED);
-    }
-
-    // B may not duplicate A.
-    button.layer.modifier = ButtonLeftPaddle;
-    uint8_t same[1] = {ButtonLeftPaddle};
-    set_button_layer2(same, sizeof(same));
-    CHECK(layer2.modifier == BUTTON_LAYER_DISABLED);
-
-    // Both layer buttons are forced to identity in all three tables.
-    uint8_t data[sizeof(ButtonLayer2)];
-    data[0] = ButtonRightPaddle;
-    for (uint8_t i = 0; i < BUTTON_REMAP_COUNT; i++) {
-        data[1 + i] = i;
-        data[1 + BUTTON_REMAP_COUNT + i] = i;
-    }
-    data[1 + ButtonCross] = ButtonL1;
-    data[1 + ButtonLeftPaddle] = ButtonL2;
-    data[1 + BUTTON_REMAP_COUNT + ButtonCross] = ButtonR3;
-    data[1 + BUTTON_REMAP_COUNT + ButtonRightPaddle] = ButtonL3;
-    data[1 + BUTTON_REMAP_COUNT + ButtonSquare] = 200;
-    button.layer.remap[ButtonRightPaddle] = ButtonR1;
-    set_button_layer2(data, sizeof(data));
-    CHECK(layer2.modifier == ButtonRightPaddle);
-    CHECK(layer2.remap[ButtonCross] == ButtonL1);
-    CHECK(layer2.remap[ButtonLeftPaddle] == ButtonLeftPaddle);
-    CHECK(layer2.combo_remap[ButtonCross] == ButtonR3);
-    CHECK(layer2.combo_remap[ButtonRightPaddle] == ButtonRightPaddle);
-    CHECK(layer2.combo_remap[ButtonSquare] == ButtonSquare);
-    CHECK(button.layer.remap[ButtonRightPaddle] == ButtonRightPaddle);
-
-    // Moving A onto B's button disables B (the newest write wins).
-    uint8_t a_right[1] = {ButtonRightPaddle};
-    set_button_layer(a_right, sizeof(a_right));
-    CHECK(button.layer.modifier == ButtonRightPaddle);
-    CHECK(layer2.modifier == BUTTON_LAYER_DISABLED);
-
-    // Oversized write (63-byte report) is clamped to the struct.
-    uint8_t big[63];
-    std::memset(big, 0xAB, sizeof(big));
-    big[0] = ButtonLeftPaddle;
-    set_button_layer2(big, sizeof(big));
-    CHECK(button.guard == 0x5A);
-    CHECK(button.guard_a == 0x5A);
+static void test_layer_two_alone() {
+    // Only layer 2 set: it works on its own; the left paddle is a plain button.
+    reset_config();
+    combo_layers();
+    set_hold(0, {});
+    set_hold(2, {});
+    auto out = frame({ButtonRightPaddle, ButtonCross});
+    CHECK(buttons(out) == mask({ButtonL1}));
+    out = frame({});
+    out = frame({ButtonLeftPaddle, ButtonRightPaddle, ButtonCross});
+    CHECK(buttons(out) == mask({ButtonLeftPaddle, ButtonL1}));
+    out = frame({});
 }
 
 int main() {
@@ -527,8 +532,9 @@ int main() {
     test_validation();
     test_combo_layers();
     test_combo_latching();
-    test_layer_b_alone();
-    test_validation_layer2();
+    test_chord_only_layer();
+    test_three_button_layer();
+    test_layer_two_alone();
     if (failures) {
         std::printf("%d check(s) failed\n", failures);
         return 1;

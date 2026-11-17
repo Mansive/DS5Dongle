@@ -56,11 +56,8 @@ struct __attribute__((packed)) Button {
     uint8_t button_remap[BUTTON_REMAP_COUNT]; // orig_btn:target_btn
     ButtonShortcut shortcuts[BUTTON_SHORTCUT_COUNT];
     // Appended after shortcuts: flash saved by older firmware pads this with
-    // 0xFF, which validation reads as "layer disabled, identity table".
-    ButtonLayer layer;
-    // Appended after the first layer for the same reason: 0xFF from older
-    // firmware reads as "layer button B off, identity tables".
-    ButtonLayer2 layer2;
+    // 0xFF, which fails the format check and resets the layers to off.
+    ButtonLayers layers;
 };
 
 struct __attribute__((packed)) ConfigStorage {
@@ -71,8 +68,10 @@ struct __attribute__((packed)) ConfigStorage {
 static_assert(offsetof(ConfigStorage, button) == CONFIG_STORAGE_SIZE);
 static_assert(BUTTON_REMAP_COUNT <= BUTTON_REPORT_SIZE); // 0xFA payload
 static_assert(sizeof(Button::shortcuts) <= BUTTON_REPORT_SIZE); // 0xFB payload
-static_assert(sizeof(ButtonLayer) <= BUTTON_REPORT_SIZE); // 0xFC payload
-static_assert(sizeof(ButtonLayer2) <= BUTTON_REPORT_SIZE); // 0xFD payload
+constexpr uint16_t BUTTON_LAYER_REPORT1_SIZE = 2 * sizeof(ButtonLayer); // 0xFC: layers 1 and 2
+constexpr uint16_t BUTTON_LAYER_REPORT2_SIZE = sizeof(ButtonLayer);     // 0xFD: layer 3
+static_assert(BUTTON_LAYER_REPORT1_SIZE <= BUTTON_REPORT_SIZE);
+static_assert(BUTTON_LAYER_REPORT1_SIZE + BUTTON_LAYER_REPORT2_SIZE == sizeof(ButtonLayers::layer));
 
 void config_default();
 void config_load();
@@ -82,8 +81,8 @@ Button& get_button();
 void set_config(const uint8_t *new_config, const uint16_t len);
 void set_button_remap(const uint8_t *new_remap, uint16_t len);
 void set_shortcut(const uint8_t *new_shortcuts, uint16_t len);
-void set_button_layer(const uint8_t *new_layer, uint16_t len);
-void set_button_layer2(const uint8_t *new_layer, uint16_t len);
+// Report 0xFC (first_layer 0, layers 1-2) or 0xFD (first_layer 2, layer 3).
+void set_button_layers(uint8_t first_layer, const uint8_t *data, uint16_t len);
 void config_valid();
 void button_remap_valid();
 void button_layer_valid();

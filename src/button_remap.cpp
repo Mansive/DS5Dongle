@@ -28,9 +28,9 @@ constexpr uint8_t DIRECTION_BITS[] = {
 static_assert(sizeof(DIRECTION_BITS) == None + 1);
 
 // Physical buttons held on the previous call, and for each held button the
-// layer buttons that were down when it was pressed (BUTTON_LAYER_HELD_* bits,
-// 0 = base). Both are derived from state, so re-applying the same input
-// (polling modes 0-2 resend one BT report many times) never changes them.
+// layer that was active when it was pressed (1..BUTTON_LAYER_COUNT, 0 = base).
+// Both are derived from state, so re-applying the same input (polling modes
+// 0-2 resend one BT report many times) never changes them.
 static uint32_t prev_pressed = 0;
 static uint8_t latched_layer[Disable] = {};
 
@@ -115,24 +115,18 @@ void button_remap_reset() {
     memset(latched_layer, 0, sizeof(latched_layer));
 }
 
-// Table for a combination of held layer buttons, or nullptr for the base table.
-static const uint8_t *layer_table(const Button &button, const uint8_t held) {
-    switch (held) {
-        case BUTTON_LAYER_HELD_A: return button.layer.remap;
-        case BUTTON_LAYER_HELD_B: return button.layer2.remap;
-        case BUTTON_LAYER_HELD_A | BUTTON_LAYER_HELD_B: return button.layer2.combo_remap;
-        default: return nullptr;
-    }
+uint32_t button_layer_hold_mask(const ButtonLayer &layer) {
+    const uint32_t bits = layer.hold[0] | static_cast<uint32_t>(layer.hold[1]) << 8 |
+                          static_cast<uint32_t>(layer.hold[2]) << 16;
+    return (bits << ButtonSquare) & ((1u << Disable) - 1);
 }
 
 void button_remap_apply(USBGetStateData &state_data) {
     // key: physical source button, value: target button it is reported as.
-    // A newly pressed button latches to the layer for the layer buttons held
-    // at that moment and keeps using it until it is released, whatever the
-    // layer buttons do in the meantime.
+    // A newly pressed button latches to the layer active at that moment and
+    // keeps using it until it is released, whatever the layer buttons do in
+    // the meantime.
     const Button &button = get_button();
-    const uint8_t modifier_a = button.layer.modifier;
-    const uint8_t modifier_b = button.layer2.modifier;
     const USBGetStateData state_copy = state_data;
 
     uint32_t pressed = 0;
@@ -143,19 +137,28 @@ void button_remap_apply(USBGetStateData &state_data) {
     }
 
     // Layer buttons are read from the physical state only, so mapping another
-    // button *to* one never activates a layer. BUTTON_LAYER_DISABLED is above
-    // Disable, so a disabled layer button never matches.
-    const bool a_enabled = modifier_a < Disable;
-    const bool b_enabled = modifier_b < Disable;
-    uint8_t held = 0;
-    if (a_enabled && (pressed & (1u << modifier_a))) held |= BUTTON_LAYER_HELD_A;
-    if (b_enabled && (pressed & (1u << modifier_b))) held |= BUTTON_LAYER_HELD_B;
+    // button *to* one never activates a layer. The active layer is the one
+    // whose hold set equals the held layer buttons exactly.
+    uint32_t hold_masks[BUTTON_LAYER_COUNT];
+    uint32_t layer_buttons = 0;
+    for (uint8_t n = 0; n < BUTTON_LAYER_COUNT; n++) {
+        hold_masks[n] = button_layer_hold_mask(button.layers.layer[n]);
+        layer_buttons |= hold_masks[n];
+    }
+    const uint32_t held = pressed & layer_buttons;
+    uint8_t active = 0;
+    for (uint8_t n = 0; n < BUTTON_LAYER_COUNT && held != 0; n++) {
+        if (hold_masks[n] == held) {
+            active = n + 1;
+            break;
+        }
+    }
     for (uint8_t i = 0; i < Disable; i++) {
         const uint32_t bit = 1u << i;
         if (!(pressed & bit)) {
             latched_layer[i] = 0;
         } else if (!(prev_pressed & bit)) {
-            latched_layer[i] = held;
+            latched_layer[i] = active;
         }
     }
     prev_pressed = pressed;
@@ -164,10 +167,11 @@ void button_remap_apply(USBGetStateData &state_data) {
     bool remapped = false;
     for (uint8_t i = 0; i < Disable; i++) {
         // A layer entry left at identity inherits the base mapping.
-        const uint8_t *table = layer_table(button, latched_layer[i]);
+        const uint8_t latched = latched_layer[i];
+        const uint8_t *table = latched ? button.layers.layer[latched - 1].remap : nullptr;
         const bool use_layer = table != nullptr && table[i] != i;
         uint8_t target = use_layer ? table[i] : button.button_remap[i];
-        if ((a_enabled && i == modifier_a) || (b_enabled && i == modifier_b)) {
+        if (layer_buttons & (1u << i)) {
             target = Disable; // Layer buttons are consumed; their base mapping is ignored.
         }
         targets[i] = target;

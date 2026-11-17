@@ -9,29 +9,32 @@
 
 constexpr uint8_t BUTTON_REMAP_COUNT = 28;
 
-// Button layers work like keyboard modifiers (see docs/button-layer.md). There
-// are two layer buttons, A and B. Buttons pressed while they are physically
-// held use the table for that exact combination instead of the base table:
-// A alone -> ButtonLayer::remap, B alone -> ButtonLayer2::remap, A and B ->
-// ButtonLayer2::combo_remap. An identity entry falls back to the base mapping.
-constexpr uint8_t BUTTON_LAYER_DISABLED = 0xFF;
+// Button layers work like keyboard modifiers (see docs/button-layer.md). Each
+// layer has a set of hold buttons. Every button in any layer's set is a layer
+// button. A button pressed while the physically held layer buttons are exactly
+// one layer's set uses that layer's table instead of the base table. An
+// identity entry falls back to the base mapping.
+constexpr uint8_t BUTTON_LAYER_COUNT = 3;
+constexpr uint8_t BUTTON_LAYER_HOLD_BYTES = 3;
+// ButtonLayers::format value; anything else (0xFF from older firmware, or an
+// earlier layout) resets the layers to off.
+constexpr uint8_t BUTTON_LAYER_FORMAT = 0x4C;
 
-// Held layer buttons as a bitmask; also the layer a press is latched to.
-constexpr uint8_t BUTTON_LAYER_HELD_A = 0x01;
-constexpr uint8_t BUTTON_LAYER_HELD_B = 0x02;
-
-// Layer button A and its table (report 0xFC).
 struct __attribute__((packed)) ButtonLayer {
-    uint8_t modifier; // ButtonId (a button, not a D-pad direction), or BUTTON_LAYER_DISABLED
+    // Little-endian bitmask of hold buttons: bit n = ButtonId ButtonSquare + n.
+    // Empty = layer off. D-pad directions cannot be hold buttons.
+    uint8_t hold[BUTTON_LAYER_HOLD_BYTES];
     uint8_t remap[BUTTON_REMAP_COUNT]; // orig_btn:target_btn, same encoding as Button::button_remap
 };
 
-// Layer button B, its table, and the table for A and B held together (report 0xFD).
-struct __attribute__((packed)) ButtonLayer2 {
-    uint8_t modifier; // ButtonId, or BUTTON_LAYER_DISABLED; never equal to ButtonLayer::modifier
-    uint8_t remap[BUTTON_REMAP_COUNT];       // B held alone
-    uint8_t combo_remap[BUTTON_REMAP_COUNT]; // A and B held together
+struct __attribute__((packed)) ButtonLayers {
+    uint8_t format; // BUTTON_LAYER_FORMAT
+    // Report 0xFC carries layers 1 and 2, report 0xFD carries layer 3.
+    ButtonLayer layer[BUTTON_LAYER_COUNT];
 };
+
+// Hold set of a layer as a mask indexed by ButtonId (bit i = ButtonId i).
+uint32_t button_layer_hold_mask(const ButtonLayer &layer);
 
 struct USBGetStateData;
 void button_remap_apply(USBGetStateData& state_data);

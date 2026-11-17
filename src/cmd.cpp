@@ -87,19 +87,14 @@ uint16_t pico_cmd_get(uint8_t report_id, uint8_t *buffer, uint16_t reqlen) {
         memcpy(buffer, get_button().shortcuts, len);
         return len;
     }
-    if (report_id == 0xfc) {
-        // byte 0: layer modifier ButtonId (0xFF = disabled), bytes 1..: layer remap table
-        printf("[HID] Receive 0xfc getting button layer\n");
-        const auto len = std::min(sizeof(Button::layer), static_cast<size_t>(reqlen));
-        memcpy(buffer, &get_button().layer, len);
-        return len;
-    }
-    if (report_id == 0xfd) {
-        // byte 0: layer button B (0xFF = disabled), bytes 1..28: B table,
-        // bytes 29..56: table for layer buttons A and B held together
-        printf("[HID] Receive 0xfd getting button layer B\n");
-        const auto len = std::min(sizeof(Button::layer2), static_cast<size_t>(reqlen));
-        memcpy(buffer, &get_button().layer2, len);
+    if (report_id == 0xfc || report_id == 0xfd) {
+        // Each layer: 3-byte hold bitmask (bit n = ButtonId Square + n), then
+        // its 28-entry remap table. 0xFC: layers 1 and 2. 0xFD: layer 3.
+        printf("[HID] Receive 0x%02x getting button layers\n", report_id);
+        const bool first = report_id == 0xfc;
+        const size_t size = first ? BUTTON_LAYER_REPORT1_SIZE : BUTTON_LAYER_REPORT2_SIZE;
+        const auto len = std::min(size, static_cast<size_t>(reqlen));
+        memcpy(buffer, &get_button().layers.layer[first ? 0 : 2], len);
         return len;
     }
     return 0;
@@ -122,15 +117,9 @@ void pico_cmd_set(uint8_t report_id, uint8_t const *buffer, uint16_t bufsize) {
         return;
     }
 
-    if (report_id == 0xfc) {
-        printf("[HID] Receive 0xfc setting button layer\n");
-        set_button_layer(buffer, bufsize);
-        return;
-    }
-
-    if (report_id == 0xfd) {
-        printf("[HID] Receive 0xfd setting button layer B\n");
-        set_button_layer2(buffer, bufsize);
+    if (report_id == 0xfc || report_id == 0xfd) {
+        printf("[HID] Receive 0x%02x setting button layers\n", report_id);
+        set_button_layers(report_id == 0xfc ? 0 : 2, buffer, bufsize);
         return;
     }
 
