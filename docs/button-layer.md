@@ -115,10 +115,11 @@ python tools/config_tool.py layer --reset                                   # ev
 
 - The Remap page has **Base / Layer 1 / Layer 2 / Layer 3** tabs, shown when
   the firmware declares both `0xFC` and `0xFD`.
-- Each layer tab has a **Hold buttons** chip group. Paddles and Fn are offered
-  in the DualSense Edge view; a hold button not offered in the current view is
-  still shown. A chip is disabled, with a tooltip, when toggling it would give
-  this layer another layer's hold set.
+- Each layer tab has one **Hold button N** dropdown per hold button, plus an
+  empty one (**None**) to add another; choosing None removes a button. Paddles
+  and Fn are offered in the DualSense Edge view; a hold button not offered in
+  the current view is still shown. A choice that would give this layer another
+  layer's hold set is disabled and labelled "(used by layer N)".
 - Layer tabs add:
   - a dashed outline on this layer's hold button hotspots
   - "Same as base" labels on entries that inherit the base mapping
@@ -184,7 +185,7 @@ python tools/config_tool.py layer --reset                                   # ev
   `0xFC`-then-`0xFD` write order) and `bun run build`. The UI was also driven
   in a browser against a simulated device. That check confirmed:
   - the Base / Layer 1 / Layer 2 / Layer 3 tabs
-  - a chip that would duplicate another layer's set being disabled
+  - a dropdown choice that would duplicate another layer's set being disabled
   - a save writing `0xFC`, then `0xFD`, then the save-to-flash command, with
     the expected hold bitmasks
 
