@@ -264,23 +264,33 @@ headers, the script asks to install the complete `gcc-arm-embedded` cask and poi
 
 ## Button layer
 
-A button layer is a second remap table. It applies to buttons pressed while a layer button
-is held. For example, hold the DualSense Edge left paddle and press Triangle, Cross, Square
-or Circle to get D-pad Up, Down, Left or Right.
+Layer buttons work like keyboard modifiers. There are two layer buttons, A and B (for
+example the two DualSense Edge back paddles), and three extra remap tables:
+
+- **Layer A** applies while only A is held.
+- **Layer B** applies while only B is held.
+- **Layer A + B** applies while both are held. It is its own table; it is not A and B merged.
+
+For example, hold the left paddle and press Triangle, Cross, Square or Circle to get D-pad
+Up, Down, Left or Right.
 
 ```sh
-python tools/config_tool.py layer modifier=LeftPaddle --face-dpad
-python tools/config_tool.py layer modifier=LeftPaddle cross=down triangle=up
+python tools/config_tool.py layer buttons=LeftPaddle,RightPaddle
+python tools/config_tool.py layer --layer a --face-dpad
+python tools/config_tool.py layer --layer b cross=l1
+python tools/config_tool.py layer --layer ab cross=r3
 python tools/config_tool.py layer --reset
 ```
 
-- The layer button itself is hidden from the game while the layer is enabled.
-- A button keeps its layer output until it is released, even if the layer button is let go first.
+- Layer buttons are hidden from the game while they are enabled.
+- A button keeps the layer it was pressed in until it is released, even if the layer buttons
+  change first.
 - Layer entries left unmapped use the base remap.
 - D-pad outputs combine into diagonals; opposite directions cancel.
 
-The web config's Remap page has a matching **Base / Layer** toggle. The layer uses
-feature report `0xFC`; details are in [docs/button-layer.md](docs/button-layer.md).
+The web config's Remap page has matching **Base / Layer A / Layer B / A + B** tabs. Layer A
+uses feature report `0xFC`; layer B and A + B use `0xFD`. Details are in
+[docs/button-layer.md](docs/button-layer.md).
 
 ## Custom button chords
 
