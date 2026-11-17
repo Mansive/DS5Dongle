@@ -121,7 +121,7 @@ python tools/config_tool.py layer --reset                                   # ev
   the current view is still shown. A choice that would give this layer another
   layer's hold set is disabled and labelled "(used by layer N)".
 - Layer tabs add:
-  - a dashed outline on this layer's hold button hotspots
+  - this layer's hold buttons outlined and lightly filled on the controller artwork
   - "Same as base" labels on entries that inherit the base mapping
   - a per-layer **Reset layer** button that clears only that table
 - Warnings cover:
