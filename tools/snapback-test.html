@@ -1,0 +1,499 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Snapback Tester</title>
+<style>
+:root {
+  --bg: #f5f6f8; --card: #ffffff; --text: #1b1f24; --muted: #5f6b7a; --line: #d9dee5;
+  --grid: #eceff3; --band: rgba(47, 111, 222, 0.08); --accent: #2f6fde; --accent-soft: rgba(47, 111, 222, 0.18);
+  --snap: #d9480f; --snap-soft: rgba(217, 72, 15, 0.12); --ok: #2b8a3e; --trace2: #9aa4b2;
+}
+@media (prefers-color-scheme: dark) {
+  :root {
+    --bg: #101317; --card: #181d23; --text: #e6e9ee; --muted: #98a2b0; --line: #2b323b;
+    --grid: #222932; --band: rgba(110, 162, 255, 0.09); --accent: #6ea2ff; --accent-soft: rgba(110, 162, 255, 0.22);
+    --snap: #ff8a4c; --snap-soft: rgba(255, 138, 76, 0.14); --ok: #63d47a; --trace2: #5d6773;
+  }
+}
+* { box-sizing: border-box; }
+body {
+  margin: 0; background: var(--bg); color: var(--text);
+  font: 14px/1.45 system-ui, -apple-system, "Segoe UI", sans-serif;
+}
+main { max-width: 1100px; margin: 0 auto; padding: 24px 16px 48px; }
+h1 { font-size: 22px; margin: 0 0 4px; }
+h2 { font-size: 13px; text-transform: uppercase; letter-spacing: .06em; color: var(--muted); margin: 0 0 12px; font-weight: 600; }
+p.lead { color: var(--muted); margin: 0 0 20px; max-width: 70ch; }
+.grid { display: grid; gap: 16px; grid-template-columns: 320px 1fr; }
+@media (max-width: 760px) { .grid { grid-template-columns: 1fr; } }
+.card { background: var(--card); border: 1px solid var(--line); border-radius: 10px; padding: 16px; min-width: 0; }
+.full { grid-column: 1 / -1; }
+canvas { display: block; width: 100%; }
+#stick { aspect-ratio: 1; max-width: 288px; margin: 0 auto; }
+#plot { height: 280px; }
+.row { display: flex; gap: 12px; align-items: center; flex-wrap: wrap; margin-bottom: 10px; }
+.row:last-child { margin-bottom: 0; }
+label { color: var(--muted); }
+select, button {
+  font: inherit; color: var(--text); background: var(--bg); border: 1px solid var(--line);
+  border-radius: 6px; padding: 5px 9px;
+}
+button { cursor: pointer; }
+button:hover { border-color: var(--accent); }
+input[type=range] { flex: 1; min-width: 120px; accent-color: var(--accent); }
+.val { font-variant-numeric: tabular-nums; min-width: 3.5em; text-align: right; }
+.status { display: grid; grid-template-columns: auto 1fr; gap: 4px 12px; margin-top: 14px; font-size: 13px; }
+.status dt { color: var(--muted); }
+.status dd { margin: 0; font-variant-numeric: tabular-nums; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.stats { display: grid; grid-template-columns: repeat(auto-fit, minmax(150px, 1fr)); gap: 12px; }
+.stat { border: 1px solid var(--line); border-radius: 8px; padding: 10px 12px; }
+.stat .k { color: var(--muted); font-size: 12px; }
+.stat .v { font-size: 22px; font-weight: 600; font-variant-numeric: tabular-nums; }
+.stat .s { color: var(--muted); font-size: 12px; }
+.verdict { margin-top: 14px; padding: 10px 12px; border-radius: 8px; background: var(--band); }
+.verdict.bad { background: var(--snap-soft); }
+.note { color: var(--muted); font-size: 12px; margin-top: 10px; }
+.warn { color: var(--snap); }
+.legend { display: flex; gap: 16px; flex-wrap: wrap; font-size: 12px; color: var(--muted); margin-top: 8px; }
+.legend i { display: inline-block; width: 16px; height: 3px; vertical-align: middle; margin-right: 6px; border-radius: 2px; }
+.tablewrap { overflow-x: auto; }
+table { width: 100%; border-collapse: collapse; font-variant-numeric: tabular-nums; font-size: 13px; }
+th, td { text-align: right; padding: 6px 8px; border-bottom: 1px solid var(--line); white-space: nowrap; }
+th:first-child, td:first-child, th:nth-child(2), td:nth-child(2) { text-align: left; }
+th { color: var(--muted); font-weight: 600; font-size: 12px; }
+tbody tr { cursor: pointer; }
+tbody tr:hover { background: var(--band); }
+tbody tr.sel { background: var(--accent-soft); }
+.badge { display: inline-block; font-size: 11px; padding: 1px 6px; border-radius: 10px; background: var(--snap-soft); color: var(--snap); margin-left: 6px; }
+.empty { color: var(--muted); text-align: center; padding: 24px; }
+</style>
+</head>
+<body>
+<main>
+  <h1>Snapback tester</h1>
+  <p class="lead">Push a stick all the way in one direction and let go, without guiding it back.
+    Repeat in different directions. Each release is recorded for 150&nbsp;ms. If the stick bounces past
+    the deadzone on the opposite side, that release shows snapback.</p>
+
+  <div class="grid">
+    <section class="card">
+      <h2>Live stick</h2>
+      <canvas id="stick"></canvas>
+      <dl class="status">
+        <dt>Controller</dt><dd id="padName">Press any button on the controller</dd>
+        <dt>Update rate</dt><dd id="rate">–</dd>
+        <dt>State</dt><dd id="state">Waiting</dd>
+      </dl>
+    </section>
+
+    <section class="card">
+      <h2>Settings</h2>
+      <div class="row">
+        <label for="pad">Controller</label>
+        <select id="pad"><option value="">None detected</option></select>
+        <label for="stickSel">Stick</label>
+        <select id="stickSel"><option value="0">Left</option><option value="1">Right</option></select>
+      </div>
+      <div class="row">
+        <label for="dz" style="min-width:9em">Deadzone</label>
+        <input type="range" id="dz" min="0.02" max="0.40" step="0.01" value="0.10">
+        <span class="val" id="dzVal"></span>
+      </div>
+      <div class="row">
+        <label for="flick" style="min-width:9em">Counts as a flick from</label>
+        <input type="range" id="flick" min="0.50" max="0.98" step="0.01" value="0.85">
+        <span class="val" id="flickVal"></span>
+      </div>
+      <div class="row">
+        <button id="clear">Clear results</button>
+        <button id="export">Download data (JSON)</button>
+      </div>
+      <p class="note">Set the deadzone to what your game uses. Changing it re-scores every recorded release.
+        A release only counts when the stick reaches the deadzone within 40&nbsp;ms of leaving the flick ring, so
+        slowly guiding it back is ignored.</p>
+    </section>
+
+    <section class="card full">
+      <h2>Results</h2>
+      <div class="stats" id="stats"></div>
+      <div class="verdict" id="verdict">No releases yet.</div>
+      <p class="note" id="rateNote"></p>
+    </section>
+
+    <section class="card full">
+      <h2>Release trace</h2>
+      <canvas id="plot"></canvas>
+      <div class="legend">
+        <span><i style="background:var(--accent)"></i>Selected release, along the flick direction</span>
+        <span><i style="background:var(--trace2)"></i>Sideways movement</span>
+        <span><i style="background:var(--grid);height:8px"></i>Other releases</span>
+        <span><i style="background:var(--snap-soft);height:8px"></i>Opposite side, past the deadzone</span>
+      </div>
+      <p class="note">Up is the direction you pushed, down is the opposite side. Time 0 is when the stick left the flick ring. Dots are the samples the browser delivered.</p>
+    </section>
+
+    <section class="card full">
+      <h2>Releases</h2>
+      <div class="tablewrap">
+        <table>
+          <thead><tr>
+            <th>#</th><th>Direction</th><th>Overshoot</th><th>Past deadzone</th>
+            <th>Centre crossings</th><th>Centre reached</th><th>Settled</th><th>Samples</th>
+          </tr></thead>
+          <tbody id="rows"></tbody>
+        </table>
+      </div>
+    </section>
+  </div>
+</main>
+
+<script>
+"use strict";
+const WINDOW_MS = 150;      // recording length after a release starts
+const PRE_MS = 20;          // samples kept from before the release
+const RELEASE_MAX_MS = 40;  // must reach the deadzone this fast to count as a release
+const NOISE = 0.02;         // ignore sign changes smaller than this
+
+const $ = (id) => document.getElementById(id);
+const settings = { pad: null, stick: 0, dz: 0.10, flick: 0.85 };
+
+let recent = [];            // last second of samples {t, x, y}
+let lastTs = -1, lastX = NaN, lastY = NaN;
+let releases = [];          // {id, dir, samples: [{t, a, q}]}
+let selected = -1;
+let dirty = true;
+let nextId = 1;
+
+// Release detector state.
+let state = "idle", dir = [1, 0], rel = null;
+
+function pads() {
+  return navigator.getGamepads ? Array.from(navigator.getGamepads()).filter(Boolean) : [];
+}
+
+function currentPad() {
+  const list = pads();
+  if (!list.length) return null;
+  return list.find((p) => p.index === settings.pad) || list[0];
+}
+
+function refreshPadList() {
+  const list = pads();
+  const sel = $("pad");
+  const want = list.map((p) => p.index + ":" + p.id).join("|");
+  if (sel.dataset.sig === want) return;
+  sel.dataset.sig = want;
+  sel.innerHTML = list.length
+    ? list.map((p) => `<option value="${p.index}">${p.index}: ${escapeHtml(p.id).slice(0, 60)}</option>`).join("")
+    : '<option value="">None detected</option>';
+  if (list.length && !list.some((p) => p.index === settings.pad)) settings.pad = list[0].index;
+  if (list.length) sel.value = String(settings.pad);
+}
+
+function escapeHtml(s) {
+  return s.replace(/[&<>"']/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c]));
+}
+
+// ---- Sampling -------------------------------------------------------------
+// Poll as often as the event loop allows; the browser decides how often new
+// controller data arrives, and pad.timestamp tells us when it did.
+const channel = new MessageChannel();
+channel.port1.onmessage = () => {
+  poll();
+  if (document.hidden) setTimeout(() => channel.port2.postMessage(0), 200);
+  else channel.port2.postMessage(0);
+};
+channel.port2.postMessage(0);
+
+function poll() {
+  const pad = currentPad();
+  if (!pad) return;
+  const ax = settings.stick * 2;
+  const x = pad.axes[ax] ?? 0, y = pad.axes[ax + 1] ?? 0;
+  if (pad.timestamp === lastTs && x === lastX && y === lastY) return;
+  const t = pad.timestamp && pad.timestamp !== lastTs ? pad.timestamp : performance.now();
+  lastTs = pad.timestamp; lastX = x; lastY = y;
+  addSample({ t, x, y });
+}
+
+function addSample(s) {
+  recent.push(s);
+  while (recent.length && s.t - recent[0].t > 1000) recent.shift();
+  const r = Math.hypot(s.x, s.y);
+
+  if (state === "idle") {
+    if (r >= settings.flick) { state = "held"; dir = [s.x / r, s.y / r]; }
+  } else if (state === "held") {
+    if (r >= settings.flick) dir = [s.x / r, s.y / r];
+    else {
+      state = "releasing";
+      rel = { t0: s.t, dir: dir.slice(), raw: recent.filter((p) => p.t >= s.t - PRE_MS), centred: false };
+    }
+  } else if (state === "releasing") {
+    rel.raw.push(s);
+    const dt = s.t - rel.t0;
+    const along = s.x * rel.dir[0] + s.y * rel.dir[1];
+    if (r >= settings.flick) {               // pushed again: not a free release
+      state = "held"; dir = [s.x / r, s.y / r]; rel = null; return;
+    }
+    if (!rel.centred) {
+      if (along <= settings.dz) rel.centred = true;
+      else if (dt > RELEASE_MAX_MS) { state = "idle"; rel = null; return; } // guided back slowly
+    }
+    if (dt >= WINDOW_MS) { finishRelease(); state = "idle"; }
+  }
+}
+
+function finishRelease() {
+  const [dx, dy] = rel.dir;
+  releases.push({
+    id: nextId++,
+    dir: rel.dir,
+    samples: rel.raw.map((p) => ({
+      t: p.t - rel.t0,
+      a: p.x * dx + p.y * dy,     // along the flick direction
+      q: -p.x * dy + p.y * dx,    // sideways
+    })),
+  });
+  selected = releases.length - 1;
+  rel = null;
+  dirty = true;
+}
+
+// ---- Analysis ---------------------------------------------------------------
+function analyze(r, dz) {
+  const ss = r.samples.filter((p) => p.t >= 0);
+  let over = 0, past = 0, crossings = 0, prevSign = 0, settled = 0, centreT = null;
+  const gaps = [];
+  for (let i = 0; i < ss.length; i++) {
+    const p = ss[i], next = ss[i + 1];
+    const dt = next ? next.t - p.t : 0;
+    if (next) gaps.push(dt);
+    if (-p.a > over) over = -p.a;
+    if (-p.a > dz) past += dt;
+    const sign = Math.abs(p.a) < NOISE ? 0 : Math.sign(p.a);
+    if (sign && prevSign && sign !== prevSign) crossings++;
+    if (sign) prevSign = sign;
+    if (centreT === null && p.a <= dz) centreT = p.t;
+    if (Math.hypot(p.a, p.q) > dz) settled = next ? next.t : p.t;
+  }
+  return { over, past, crossings, centreT, settled, n: ss.length, gap: median(gaps), snap: over > dz };
+}
+
+function median(a) {
+  if (!a.length) return NaN;
+  const s = a.slice().sort((x, y) => x - y);
+  return s[Math.floor(s.length / 2)];
+}
+
+function pct(v) { return Math.round(v * 100) + "%"; }
+function ms(v) { return v == null || isNaN(v) ? "–" : (v < 10 ? v.toFixed(1) : Math.round(v)) + " ms"; }
+
+function dirLabel(d) {
+  const deg = (Math.atan2(-d[1], d[0]) * 180 / Math.PI + 360) % 360;
+  const arrows = ["→", "↗", "↑", "↖", "←", "↙", "↓", "↘"];
+  return arrows[Math.round(deg / 45) % 8] + " " + Math.round(deg) + "°";
+}
+
+// ---- Results ----------------------------------------------------------------
+function renderResults() {
+  const res = releases.map((r) => analyze(r, settings.dz));
+  const n = res.length, snaps = res.filter((r) => r.snap);
+  const maxOver = Math.max(0, ...res.map((r) => r.over));
+  const maxPast = Math.max(0, ...res.map((r) => r.past));
+  const gap = median(res.map((r) => r.gap).filter((g) => !isNaN(g)));
+
+  const stat = (k, v, s) => `<div class="stat"><div class="k">${k}</div><div class="v">${v}</div><div class="s">${s}</div></div>`;
+  $("stats").innerHTML = [
+    stat("Releases", n, "recorded"),
+    stat("With snapback", n ? `${snaps.length} <span style="font-size:14px;color:var(--muted)">(${pct(snaps.length / n)})</span>` : "–", "past the deadzone, opposite side"),
+    stat("Largest overshoot", n ? pct(maxOver) : "–", "of full travel"),
+    stat("Longest past deadzone", n && snaps.length ? ms(maxPast) : "–", "approximate, from samples"),
+    stat("Sample interval", ms(gap), "median, during releases"),
+  ].join("");
+
+  const v = $("verdict");
+  if (!n) { v.className = "verdict"; v.textContent = "No releases yet."; }
+  else if (!snaps.length) {
+    v.className = "verdict";
+    v.innerHTML = `No snapback seen in ${n} release${n > 1 ? "s" : ""} at a ${pct(settings.dz)} deadzone. ` +
+      `The largest overshoot was ${pct(maxOver)}.` + (n < 20 ? " Try at least 20 releases in several directions." : "");
+  } else {
+    const window = Math.ceil(maxPast + (isNaN(gap) ? 0 : gap));
+    v.className = "verdict bad";
+    v.innerHTML = `Snapback in <b>${snaps.length} of ${n}</b> releases at a ${pct(settings.dz)} deadzone. ` +
+      `A deadzone of about <b>${pct(Math.min(1, maxOver + 0.02))}</b> would hide every bounce seen here, ` +
+      `or a snapback filter would need a window of roughly <b>${window} ms</b>.`;
+  }
+
+  $("rateNote").innerHTML = gap > 4
+    ? `<span class="warn">The browser delivered a sample about every ${ms(gap)}.</span> Bounces shorter than that can fall between samples, so these counts are a lower bound. More releases give a better picture.`
+    : "";
+
+  const rows = res.map((r, i) => ({ r, i })).reverse();
+  $("rows").innerHTML = rows.length ? rows.map(({ r, i }) => `
+    <tr data-i="${i}" class="${i === selected ? "sel" : ""}">
+      <td>${releases[i].id}${r.snap ? '<span class="badge">snapback</span>' : ""}</td>
+      <td>${dirLabel(releases[i].dir)}</td>
+      <td>${pct(r.over)}</td>
+      <td>${r.snap ? ms(r.past) : "–"}</td>
+      <td>${r.crossings}</td>
+      <td>${ms(r.centreT)}</td>
+      <td>${ms(r.settled)}</td>
+      <td>${r.n}</td>
+    </tr>`).join("") : '<tr><td colspan="8" class="empty">Releases appear here.</td></tr>';
+  drawPlot(res);
+}
+
+// ---- Drawing ----------------------------------------------------------------
+function css(name) { return getComputedStyle(document.documentElement).getPropertyValue(name).trim(); }
+
+function setupCanvas(c) {
+  const dpr = window.devicePixelRatio || 1;
+  const w = c.clientWidth, h = c.clientHeight;
+  if (c.width !== Math.round(w * dpr) || c.height !== Math.round(h * dpr)) {
+    c.width = Math.round(w * dpr); c.height = Math.round(h * dpr);
+  }
+  const ctx = c.getContext("2d");
+  ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+  ctx.clearRect(0, 0, w, h);
+  return { ctx, w, h };
+}
+
+function drawStick() {
+  const { ctx, w, h } = setupCanvas($("stick"));
+  const cx = w / 2, cy = h / 2, R = Math.min(w, h) / 2 - 8;
+  if (R <= 0) return; // not laid out yet
+  ctx.fillStyle = css("--band");
+  ctx.beginPath(); ctx.arc(cx, cy, R, 0, Math.PI * 2); ctx.fill();
+  ctx.strokeStyle = css("--line"); ctx.lineWidth = 1; ctx.stroke();
+  ctx.beginPath(); ctx.moveTo(cx - R, cy); ctx.lineTo(cx + R, cy); ctx.moveTo(cx, cy - R); ctx.lineTo(cx, cy + R);
+  ctx.strokeStyle = css("--grid"); ctx.stroke();
+  ctx.setLineDash([4, 4]); ctx.strokeStyle = css("--muted");
+  ctx.beginPath(); ctx.arc(cx, cy, R * settings.flick, 0, Math.PI * 2); ctx.stroke();
+  ctx.setLineDash([]);
+  ctx.fillStyle = css("--snap-soft"); ctx.strokeStyle = css("--snap");
+  ctx.beginPath(); ctx.arc(cx, cy, R * settings.dz, 0, Math.PI * 2); ctx.fill(); ctx.stroke();
+
+  const now = recent.length ? recent[recent.length - 1].t : 0;
+  const trail = recent.filter((p) => now - p.t <= 300);
+  if (trail.length > 1) {
+    ctx.strokeStyle = css("--accent"); ctx.globalAlpha = 0.5; ctx.lineWidth = 1.5;
+    ctx.beginPath();
+    trail.forEach((p, i) => (i ? ctx.lineTo : ctx.moveTo).call(ctx, cx + p.x * R, cy + p.y * R));
+    ctx.stroke(); ctx.globalAlpha = 1;
+  }
+  if (recent.length) {
+    const p = recent[recent.length - 1];
+    ctx.fillStyle = css("--accent");
+    ctx.beginPath(); ctx.arc(cx + p.x * R, cy + p.y * R, 6, 0, Math.PI * 2); ctx.fill();
+  }
+}
+
+function drawPlot(res) {
+  const { ctx, w, h } = setupCanvas($("plot"));
+  const L = 44, Rm = 24, T = 10, B = 26;
+  if (w <= L + Rm || h <= T + B) return; // not laid out yet
+  const t0 = -PRE_MS, t1 = WINDOW_MS;
+  const X = (t) => L + (t - t0) / (t1 - t0) * (w - L - Rm);
+  const Y = (v) => T + (1 - (v + 1) / 2) * (h - T - B);
+  const dz = settings.dz;
+
+  ctx.fillStyle = css("--snap-soft");
+  ctx.fillRect(L, Y(-dz), w - L - Rm, Y(-1) - Y(-dz));
+  ctx.fillStyle = css("--band");
+  ctx.fillRect(L, Y(dz), w - L - Rm, Y(-dz) - Y(dz));
+
+  ctx.font = "11px system-ui, sans-serif"; ctx.fillStyle = css("--muted"); ctx.strokeStyle = css("--grid"); ctx.lineWidth = 1;
+  ctx.textAlign = "right"; ctx.textBaseline = "middle";
+  for (const v of [1, 0.5, 0, -0.5, -1]) {
+    ctx.beginPath(); ctx.moveTo(L, Y(v)); ctx.lineTo(w - Rm, Y(v)); ctx.stroke();
+    ctx.fillText((v > 0 ? "+" : "") + Math.round(v * 100) + "%", L - 6, Y(v));
+  }
+  ctx.textAlign = "center"; ctx.textBaseline = "top";
+  for (let t = 0; t <= t1; t += 25) {
+    ctx.beginPath(); ctx.moveTo(X(t), T); ctx.lineTo(X(t), h - B); ctx.stroke();
+    ctx.fillText(t + " ms", X(t), h - B + 6);
+  }
+
+  const line = (pts, key, color, width, alpha, dash) => {
+    if (pts.length < 2) return;
+    ctx.strokeStyle = color; ctx.lineWidth = width; ctx.globalAlpha = alpha; ctx.setLineDash(dash || []);
+    ctx.beginPath();
+    pts.forEach((p, i) => (i ? ctx.lineTo : ctx.moveTo).call(ctx, X(p.t), Y(p[key])));
+    ctx.stroke(); ctx.globalAlpha = 1; ctx.setLineDash([]);
+  };
+  const clip = (r) => r.samples.filter((p) => p.t >= t0 && p.t <= t1);
+
+  releases.forEach((r, i) => { if (i !== selected) line(clip(r), "a", css("--trace2"), 1, 0.25); });
+  const sel = releases[selected];
+  if (sel) {
+    const pts = clip(sel);
+    line(pts, "q", css("--trace2"), 1.25, 0.9, [4, 3]);
+    line(pts, "a", res[selected].snap ? css("--snap") : css("--accent"), 2, 1);
+    ctx.fillStyle = res[selected].snap ? css("--snap") : css("--accent");
+    for (const p of pts) { ctx.beginPath(); ctx.arc(X(p.t), Y(p.a), 2.5, 0, Math.PI * 2); ctx.fill(); }
+  } else {
+    ctx.fillStyle = css("--muted"); ctx.textAlign = "center"; ctx.textBaseline = "middle";
+    ctx.font = "13px system-ui, sans-serif";
+    ctx.fillText("Flick the stick and let go to record a release", (L + w - Rm) / 2, (T + h - B) / 2 - 20);
+  }
+}
+
+function rateHz() {
+  if (recent.length < 2) return 0;
+  return Math.round((recent.length - 1) * 1000 / (recent[recent.length - 1].t - recent[0].t));
+}
+
+// ---- UI loop ----------------------------------------------------------------
+const stateText = { idle: "Waiting for a flick", held: "Holding: let go now", releasing: "Recording release…" };
+let lastPadRefresh = 0;
+function frame(now) {
+  if (now - lastPadRefresh > 500) { refreshPadList(); lastPadRefresh = now; }
+  const pad = currentPad();
+  $("padName").textContent = pad ? pad.id : "Press any button on the controller";
+  const hz = rateHz();
+  $("rate").textContent = pad && hz ? `${hz} Hz` : "–";
+  $("state").textContent = pad ? stateText[state] : "Waiting";
+  drawStick();
+  if (dirty) { renderResults(); dirty = false; }
+  requestAnimationFrame(frame);
+}
+
+function syncLabels() {
+  $("dzVal").textContent = pct(settings.dz);
+  $("flickVal").textContent = pct(settings.flick);
+}
+
+$("dz").addEventListener("input", (e) => { settings.dz = +e.target.value; syncLabels(); dirty = true; });
+$("flick").addEventListener("input", (e) => { settings.flick = +e.target.value; syncLabels(); });
+$("stickSel").addEventListener("change", (e) => { settings.stick = +e.target.value; state = "idle"; rel = null; recent = []; });
+$("pad").addEventListener("change", (e) => { settings.pad = +e.target.value; state = "idle"; rel = null; recent = []; });
+$("clear").addEventListener("click", () => { releases = []; selected = -1; nextId = 1; dirty = true; });
+$("export").addEventListener("click", () => {
+  const data = {
+    controller: currentPad()?.id ?? null, stick: settings.stick ? "right" : "left",
+    deadzone: settings.dz, flick: settings.flick,
+    releases: releases.map((r) => ({ id: r.id, direction: r.dir, result: analyze(r, settings.dz), samples: r.samples })),
+  };
+  const a = document.createElement("a");
+  a.href = URL.createObjectURL(new Blob([JSON.stringify(data, null, 2)], { type: "application/json" }));
+  a.download = "snapback-results.json";
+  a.click();
+  setTimeout(() => URL.revokeObjectURL(a.href), 1000);
+});
+$("rows").addEventListener("click", (e) => {
+  const tr = e.target.closest("tr[data-i]");
+  if (tr) { selected = +tr.dataset.i; dirty = true; }
+});
+window.addEventListener("gamepadconnected", refreshPadList);
+window.addEventListener("gamepaddisconnected", refreshPadList);
+window.addEventListener("resize", () => { dirty = true; });
+
+syncLabels();
+requestAnimationFrame(frame);
+</script>
+</body>
+</html>
