@@ -333,8 +333,9 @@ python tools/config_tool.py set snapback_left=20 snapback_right=36
 
 Use the **Filter hold needed** figure from the [snapback tester](#snapback-tester) for each
 stick, with the tester's deadzone set to the game's. A hard push of 90% or more still goes
-through during the hold. A stick brought back to centre by hand is not held. Details are in
-[docs/snapback-filter.md](docs/snapback-filter.md).
+through during the hold. A stick brought back to centre by hand is not held. In the web
+config, the settings are in the **Snapback filter** section of the General page. Details are
+in [docs/snapback-filter.md](docs/snapback-filter.md).
 
 ## Snapback tester
 

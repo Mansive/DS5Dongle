@@ -1,7 +1,7 @@
 # Snapback filter
 
-Status: implemented in firmware and `tools/config_tool.py`. The web UI
-(`ds5dongle-config-web`) does not have the settings yet. The host tests pass,
+Status: implemented in firmware, `tools/config_tool.py`, and the web UI
+(`ds5dongle-config-web`, branch `feat/touchpad-mouse`). The host tests pass,
 and the filter was replayed against recorded releases of a stock DualSense Edge
 stick and a Besavior JS13 Pro+ stick. It has **not** been tested on hardware
 yet.
@@ -28,6 +28,12 @@ through again.
 ```sh
 python tools/config_tool.py set snapback_left=20 snapback_right=36
 ```
+
+In the web config, both settings are in the **Snapback filter** section of the
+General page. The web config shows the section only for firmware that also
+reports the touchpad mouse settings, since there is no other way to tell from
+the config whether the firmware has the filter. A build from between the two
+features shows the section, but the settings do nothing there.
 
 The two bytes follow `touchpad_sensitivity` at the end of `Config_body`
 (offsets 27 and 28). Flash written by older firmware reads `0xFF` there, which
@@ -99,4 +105,3 @@ This builds `tests/snapback_filter_test.cpp` with `g++` against
 
 - Hardware test over Bluetooth with both sticks, in a game with a known
   deadzone.
-- Settings in the web UI.
