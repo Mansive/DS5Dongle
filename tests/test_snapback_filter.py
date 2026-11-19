@@ -50,8 +50,8 @@ class SnapbackFirmwareTests(unittest.TestCase):
             for name in ('snapback_filter.cpp', 'snapback_filter.h'):
                 shutil.copyfile(ROOT / 'src' / name, tmp / name)
             types = extract(utils, 'enum PowerState', 'uint8_t AesCmac[8];\n};')
-            (tmp / 'utils.h').write_text('#pragma once\n#include <cstdint>\n' + types + '\n',
-                                         encoding='utf-8')
+            stub = '#pragma once\n#include <cstdint>\n#define __not_in_flash_func(name) name\n'
+            (tmp / 'utils.h').write_text(stub + types + '\n', encoding='utf-8')
             shutil.copyfile(ROOT / 'tests/snapback_filter_test.cpp', tmp / 'test.cpp')
             exe = tmp / 'test.exe'
             subprocess.run(['g++', '-std=c++17', '-Wall', '-Wextra', '-Werror', '-I', str(tmp),
