@@ -495,10 +495,10 @@ uint8_t const *tud_descriptor_configuration_cb(uint8_t index) {
     }
 
     // Advertise REMOTE_WAKEUP only when wake is on. Include the keyboard and consumer
-    // interfaces (the LAST two descriptor blocks) when wake or the explicit keyboard
-    // switch is on. With both off this is byte-identical to the base descriptor.
+    // interfaces (the LAST two descriptor blocks) when any feature that sends on them
+    // is on: wake, the keyboard switch, sleep on dock, the touchpad mouse or a
+    // mouse-button remap. With all off this is byte-identical to the base descriptor.
     const bool wake = get_config().enable_wake;
-    // The touchpad mouse and mouse-button remaps also send on the consumer interface.
     const bool kbd = wake || get_config().enable_keyboard || get_config().sleep_on_dock ||
                      get_config().touchpad_mouse != TouchpadMouseOff || button_remap_uses_mouse();
     descriptor_configuration[7] = wake ? 0xE0 : 0xC0; // bmAttributes (REMOTE_WAKEUP bit)

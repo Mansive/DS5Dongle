@@ -1,5 +1,6 @@
 #include "touchpad_mouse.h"
 
+#include <algorithm>
 #include <cmath>
 #include <cstdio>
 #include <cstdlib>
@@ -79,12 +80,14 @@ static bool mouse_available() {
     return !usb_keyboard_only && !usb_reconfiguring && tud_mounted() && !tud_suspended();
 }
 
-static int32_t clamp_i32(const int32_t value, const int32_t limit) {
-    return value > limit ? limit : (value < -limit ? -limit : value);
+// Configured on and not turned off by the toggle shortcut.
+static bool touchpad_mouse_active() {
+    return runtime_enabled && get_config().touchpad_mouse != TouchpadMouseOff;
 }
 
-bool touchpad_mouse_active() {
-    return runtime_enabled && get_config().touchpad_mouse != TouchpadMouseOff;
+static void clear_pointer() {
+    motion = {};
+    pending_x = pending_y = 0;
 }
 
 bool touchpad_mouse_hides_touch() {
@@ -92,8 +95,7 @@ bool touchpad_mouse_hides_touch() {
 }
 
 void touchpad_mouse_reset() {
-    motion = {};
-    pending_x = pending_y = 0;
+    clear_pointer();
     buttons = 0;
     // sent_buttons is kept: a press the host has seen still needs its release.
 }
@@ -103,8 +105,7 @@ void touchpad_mouse_toggle() {
     // Flipping the flag anyway would leave it off once the config turns it on.
     if (get_config().touchpad_mouse == TouchpadMouseOff) return;
     runtime_enabled = !runtime_enabled;
-    motion = {};
-    pending_x = pending_y = 0;
+    clear_pointer();
     printf("[Touchpad] Mouse %s\n", runtime_enabled ? "on" : "off");
 }
 
@@ -120,11 +121,10 @@ void touchpad_mouse_on_report(const USBGetStateData &state) {
         int32_t dx, dy;
         touchpad_motion_step(motion, !finger.NotTouching, finger.Index, finger.FingerX, finger.FingerY,
                              get_config().touchpad_sensitivity, dx, dy);
-        pending_x = clamp_i32(pending_x + dx, PENDING_LIMIT);
-        pending_y = clamp_i32(pending_y + dy, PENDING_LIMIT);
+        pending_x = std::clamp(pending_x + dx, -PENDING_LIMIT, PENDING_LIMIT);
+        pending_y = std::clamp(pending_y + dy, -PENDING_LIMIT, PENDING_LIMIT);
     } else {
-        motion = {};
-        pending_x = pending_y = 0;
+        clear_pointer();
     }
     touchpad_mouse_task();
 }
@@ -132,16 +132,15 @@ void touchpad_mouse_on_report(const USBGetStateData &state) {
 void touchpad_mouse_task() {
     if (!mouse_available()) {
         // The host forgets mouse state on suspend and re-enumeration.
-        motion = {};
-        pending_x = pending_y = 0;
+        clear_pointer();
         sent_buttons = 0;
         return;
     }
     if (pending_x == 0 && pending_y == 0 && buttons == sent_buttons) return;
     if (!tud_hid_n_ready(CONSUMER_INSTANCE)) return;
 
-    const auto x = static_cast<int16_t>(clamp_i32(pending_x, 32767));
-    const auto y = static_cast<int16_t>(clamp_i32(pending_y, 32767));
+    const auto x = static_cast<int16_t>(std::clamp<int32_t>(pending_x, -32767, 32767));
+    const auto y = static_cast<int16_t>(std::clamp<int32_t>(pending_y, -32767, 32767));
     const uint8_t report[5] = {
         buttons,
         static_cast<uint8_t>(x & 0xFF), static_cast<uint8_t>((x >> 8) & 0xFF),

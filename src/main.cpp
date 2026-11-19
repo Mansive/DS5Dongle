@@ -49,7 +49,6 @@ void __not_in_flash_func(interrupt_loop)() {
     if (get_config().polling_rate_mode != 3) {
         USBGetStateData report = interrupt_in_data;
         button_remap_apply(report);
-        if (touchpad_mouse_hides_touch()) touchpad_hide_touch(report);
         if (!tud_hid_report(0x01, &report, sizeof(report))) {
             printf("[USBHID] tud_hid_report error\n");
         }
@@ -68,7 +67,6 @@ void __not_in_flash_func(interrupt_loop)() {
     // Only send to TinyUSB if we actually grabbed fresh data
     if (should_send) {
         button_remap_apply(report);
-        if (touchpad_mouse_hides_touch()) touchpad_hide_touch(report);
         if (!tud_hid_report(0x01, &report, sizeof(report))) {
             printf("[USBHID] tud_hid_report error\n");
 
@@ -159,6 +157,8 @@ void __not_in_flash_func(on_bt_data)(CHANNEL_TYPE channel, uint8_t *data, uint16
             button_shortcut_tick(interrupt_in_data);
             touchpad_mouse_on_report(interrupt_in_data);
         }
+        // After the touchpad mouse has read the touch, so the game never sees it.
+        if (touchpad_mouse_hides_touch()) touchpad_hide_touch(interrupt_in_data);
 
         if (get_config().polling_rate_mode != 3) {
 #if ENABLE_BATT_LED

@@ -33,9 +33,7 @@ void touchpad_motion_step(TouchpadMotion &motion, bool touching, uint8_t index, 
 void touchpad_hide_touch(USBGetStateData &state);
 
 #ifdef ENABLE_WAKE_HID
-// Configured on and not turned off by the toggle shortcut.
-bool touchpad_mouse_active();
-// Active and set to hide the touchpad from the game.
+// On, not turned off by the toggle shortcut, and set to hide the touchpad from the game.
 bool touchpad_mouse_hides_touch();
 // Called with every controller input report (physical state).
 void touchpad_mouse_on_report(const USBGetStateData &state);
@@ -45,7 +43,6 @@ void touchpad_mouse_reset();
 // The toggle shortcut: turns the touchpad mouse off or back on until reboot.
 void touchpad_mouse_toggle();
 #else
-static inline bool touchpad_mouse_active() { return false; }
 static inline bool touchpad_mouse_hides_touch() { return false; }
 static inline void touchpad_mouse_on_report(const USBGetStateData &) {}
 static inline void touchpad_mouse_task() {}

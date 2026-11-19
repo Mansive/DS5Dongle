@@ -186,6 +186,9 @@ void button_remap_apply(USBGetStateData &state_data) {
 
     uint8_t targets[Disable];
     bool remapped = false;
+    // Mouse targets leave the gamepad report; their buttons go out on the
+    // mouse report instead (see touchpad_mouse.cpp).
+    uint8_t mouse = 0;
     for (uint8_t i = 0; i < Disable; i++) {
         // A layer entry left at identity inherits the base mapping.
         const uint8_t latched = latched_layer[i];
@@ -197,13 +200,8 @@ void button_remap_apply(USBGetStateData &state_data) {
         }
         targets[i] = target;
         remapped |= target != i;
-    }
-    // Mouse targets leave the gamepad report; their buttons go out on the
-    // mouse report instead (see touchpad_mouse.cpp).
-    uint8_t mouse = 0;
-    for (uint8_t i = 0; i < Disable; i++) {
-        if (is_mouse_target(targets[i]) && (pressed & (1u << i))) {
-            mouse |= 1u << (targets[i] - MouseLeft);
+        if (is_mouse_target(target) && (pressed & (1u << i))) {
+            mouse |= 1u << (target - MouseLeft);
         }
     }
     mouse_buttons = mouse;
