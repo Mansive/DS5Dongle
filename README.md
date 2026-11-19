@@ -336,7 +336,7 @@ It has two sources:
   DualSense Edge, DualShock 4 and this dongle are timed by the controller's own sensor clock, so
   through the dongle it shows the real Bluetooth report rate. Other HID gamepads are read from
   their report descriptor and timed on arrival. Xbox controllers on a cable or the Xbox adapter
-  are not HID devices; use the Gamepad API for those.
+  are not HID devices, so use the Gamepad API for those.
 - **Gamepad API** works with any controller and is used in browsers without WebHID. The browser
   checks it about every 4–5 ms, so short bounces can fall between readings.
 

@@ -569,7 +569,7 @@ function renderResults() {
     stat("Largest overshoot", n ? pct(maxOver) : "–", "opposite side, of full travel"),
     stat("Largest rebound", n ? pct(maxReb) : "–", "back toward the pushed side"),
     stat("Filter hold needed", n && bouncy.length ? `${ms(Math.ceil(holdMax + g))}` : "–",
-      n && bouncy.length ? `all releases; ${ms(Math.ceil(holdP90 + g))} covers 90%` : "until bouncing stops"),
+      n && bouncy.length ? `${ms(Math.ceil(holdP90 + g))} covers 90% of releases` : "until bouncing stops"),
     stat("Sample interval", ms(gap), "median, during releases"),
   ].join("");
 
@@ -582,7 +582,7 @@ function renderResults() {
   } else {
     v.className = "verdict bad";
     v.innerHTML = `Snapback in <b>${snaps.length} of ${n}</b> releases at a ${pct(settings.dz)} deadzone` +
-      (rebs.length ? `; <b>${rebs.length} of ${n}</b> bounced back toward the pushed side` : "") + ". " +
+      (rebs.length ? `, and <b>${rebs.length} of ${n}</b> bounced back toward the pushed side` : "") + ". " +
       `To hide it, use a <b>${pct(Math.min(1, maxDev + 0.02))}</b> deadzone, or a <b>${Math.ceil(holdMax + g)} ms</b> ` +
       `snapback filter (${Math.ceil(holdP90 + g)} ms covers 90%).`;
   }
@@ -753,7 +753,7 @@ function syncSourceUi() {
   $("padPick").hidden = hidMode;
   $("axesPick").hidden = !(hidMode && hid && hid.generic && settings.stick === 1);
   $("sourceNote").textContent = hidMode
-    ? "WebHID reads every report the controller sends, instead of the browser checking every 4–5 ms. Sony controllers and the DS5 dongle are timed by the controller's own clock; through the dongle that shows the real Bluetooth report rate. Other HID gamepads are timed on arrival. Chrome or Edge only."
+    ? "WebHID reads every report the controller sends, instead of the browser checking every 4–5 ms. Sony controllers and the DS5 dongle are timed by the controller's own clock. Through the dongle, that shows the real Bluetooth report rate. Other HID gamepads are timed on arrival. Chrome or Edge only."
     : "The browser checks the controller every few milliseconds, so short bounces can fall between readings. Works with any controller.";
 }
 
