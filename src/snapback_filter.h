@@ -25,10 +25,15 @@ constexpr uint32_t SNAPBACK_RELEASE_MS = 15;
 // on stock and aftermarket sticks stay well below it.
 constexpr uint8_t SNAPBACK_ESCAPE_PERCENT = 90;
 // The hold ends early once the stick has stayed within SNAPBACK_SETTLE_PERCENT
-// of centre for SNAPBACK_SETTLE_MS. A bounce still big enough to pass a 10%
-// deadzone swings through that zone faster than that.
-constexpr uint8_t SNAPBACK_SETTLE_PERCENT = 8;
+// of centre for SNAPBACK_SETTLE_MS. A bounce swings through that zone faster
+// than that. The zone is small enough for the low deadzones used with TMR
+// sticks. A stick that rests further off centre never settles and gets the
+// full hold.
+constexpr uint8_t SNAPBACK_SETTLE_PERCENT = 3;
 constexpr uint32_t SNAPBACK_SETTLE_MS = 8;
+// While holding, the stick has to be this far from centre to count as being on
+// one side, so jitter around centre never starts a new swing.
+constexpr uint8_t SNAPBACK_SWING_GATE_PERCENT = 4;
 // While holding, these also end the hold, since a spring bounce does none of
 // them. Each swing of a bounce is smaller than the one before, so a swing at
 // least SNAPBACK_GROWTH_PERCENT larger is the player...

@@ -83,8 +83,10 @@ All thresholds are fractions of full travel, measured from `0x80`. They are in
    the player moving the stick and is not held.
 3. **Holding.** The stick is reported at centre until one of these happens.
    - The hold time has passed since the release.
-   - **Settled.** The stick has stayed within 8% of centre for 8 ms. A bounce
-     big enough to pass a 10% deadzone swings through that zone faster.
+   - **Settled.** The stick has stayed within 3% of centre for 8 ms. A bounce
+     swings through that zone faster. The zone suits the low deadzones (about
+     0–5%) used with TMR sticks. A stick that rests further than 3% off centre,
+     such as a worn potentiometer stick, never settles and gets the full hold.
    - **Hard push.** The stick is at 90% or more. Measured bounces stay well
      below that.
    - **Sideways.** The stick is 35% or more to the side of the line it was
@@ -97,13 +99,17 @@ All thresholds are fractions of full travel, measured from `0x80`. They are in
 4. When the hold ends the stick passes through again, and a new push of 50% or
    more arms it for the next release.
 
+For the swing rules, the stick counts as being on one side of centre only from
+4%, so jitter around centre never starts a new swing.
+
 The host tests feed modelled releases through the filter, with the stock
 stick's 54% overshoot and the JS13's 72% overshoot and slower swing, sampled
-every 1, 2 and 4 ms at every phase. None of the escape rules fires on them
-before the bounce falls under 10%. Shortening the steady push time to 8 ms or
-the settle time to 5 ms makes some of them leak at 4 ms sampling, so the
-chosen values have only a small margin there. The sideways rule is not covered
-by these models, since they bounce along a straight line.
+every 1, 2 and 4 ms at every phase, with and without 2 counts of jitter. None
+of the escape rules fires on them before the bounce falls under 10%.
+Shortening the steady push time to 8 ms makes some of them leak at 4 ms
+sampling, so that value has only a small margin. The settle time would leak
+at 3 ms. The sideways rule is not covered by these models, since they bounce
+along a straight line.
 
 Time comes from the controller's `SensorTimestamp` (units of 1/3 µs), so the
 hold does not depend on when Bluetooth packets arrive. The counter wraps every

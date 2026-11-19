@@ -145,11 +145,11 @@ static void check_sequence(const Sample *samples, const bool *expect, const int 
 }
 
 static void test_settle_ends_hold_early() {
-    // The release above with a slower tail and a 60 ms hold: the hold ends
-    // 8 ms after the stick settles within 8% (t = 26), not at 64 ms. The pass
-    // near centre at 12 ms and the 6% dip at 20 ms are too short to end it.
+    // The release above with a settling tail and a 60 ms hold: the hold ends
+    // 8 ms after the stick settles within 3% (t = 26), not at 64 ms. The pass
+    // through centre at 12 ms is too short to end it.
     SnapbackStick s;
-    const Sample tail[] = {{26, -0.04, 0}, {28, 0.03, 0}, {30, 0.02, 0}, {32, 0.01, 0}, {34, 0.0, 0}, {36, 0.0, 0}};
+    const Sample tail[] = {{26, -0.01, 0}, {28, 0.01, 0}, {30, 0.0, 0}, {32, -0.01, 0.01}, {34, 0.0, 0}, {36, 0.0, 0}};
     for (const auto &p : release) {
         if (p.t >= 26) break;
         CHECK(step(s, p, 60) == (p.t >= 4));
@@ -183,16 +183,26 @@ static void test_slow_push_escapes() {
     check_sequence(s, expect, 9);
 }
 
+// Up to `amount` counts of repeatable jitter on a raw axis.
+static uint8_t jitter(const uint8_t raw, const int amount, uint32_t &seed) {
+    if (amount == 0) return raw;
+    seed = seed * 1664525u + 1013904223u;
+    const int v = raw + static_cast<int>((seed >> 16) % (2 * amount + 1)) - amount;
+    return static_cast<uint8_t>(v < 0 ? 0 : v > 255 ? 255 : v);
+}
+
 // A spring release modelled as a damped swing: back at centre after
-// swing_ms / 2 and overshooting by `overshoot` after swing_ms. Sampled every
-// dt ms starting at `phase`, every report that would pass a 10% deadzone in
-// the 60 ms after the release must be held, so none of the escape rules
-// mistakes the bounce for the player.
+// swing_ms / 2 and overshooting by `overshoot` after swing_ms, with up to
+// `noise` counts of jitter on both axes. Sampled every dt ms starting at
+// `phase`, every report that would pass a 10% deadzone in the 60 ms after the
+// release must be held, so none of the escape rules mistakes the bounce for
+// the player.
 static void check_modelled_release(const double swing_ms, const double overshoot, const double dt,
-                                   const double phase) {
+                                   const double phase, const int noise) {
     constexpr double PI = 3.14159265358979;
     const double tau = swing_ms / -std::log(overshoot);
     SnapbackStick s;
+    uint32_t seed = static_cast<uint32_t>(phase * 1000 + dt * 100 + swing_ms);
     const uint32_t base = ms(100);
     snapback_step(s, axis(1.0), axis(0), base - ms(20), 60);
     snapback_step(s, axis(1.0), axis(0), base - ms(10), 60);
@@ -200,13 +210,16 @@ static void check_modelled_release(const double swing_ms, const double overshoot
     double entered_at = 0;
     for (double t = phase; t < 80; t += dt) {
         const double x = std::exp(-t / tau) * std::cos(PI * t / swing_ms);
-        const bool held = snapback_step(s, axis(x), axis(0), base + ms(t), 60);
+        const uint8_t rx = jitter(axis(x), noise, seed);
+        const uint8_t ry = jitter(axis(0), noise, seed);
+        const bool held = snapback_step(s, rx, ry, base + ms(t), 60);
         if (held && !entered) {
             entered = true;
             entered_at = t;
         }
         if (entered && t < entered_at + 60 && std::fabs(x) >= 0.10 && !held) {
-            std::printf("  swing=%.0f dt=%.0f phase=%.2f t=%.2f x=%.2f passed\n", swing_ms, dt, phase, t, x);
+            std::printf("  swing=%.0f dt=%.0f phase=%.2f noise=%d t=%.2f x=%.2f passed\n", swing_ms, dt, phase,
+                        noise, t, x);
             CHECK(held);
         }
     }
@@ -214,12 +227,17 @@ static void check_modelled_release(const double swing_ms, const double overshoot
 }
 
 static void test_modelled_bounces_stay_held() {
-    // Stock stick: 54% overshoot. JS13: 72% overshoot, slower swing.
+    // Stock stick: 54% overshoot. JS13: 72% overshoot, slower swing. Each with
+    // no jitter and with up to 2 counts of it.
     const double sticks[][2] = {{6, 0.54}, {8, 0.72}};
     const double rates[] = {1, 2, 4};
     for (const auto &stick : sticks) {
         for (const double dt : rates) {
-            for (double phase = 0; phase < dt; phase += 0.25) check_modelled_release(stick[0], stick[1], dt, phase);
+            for (int noise = 0; noise <= 2; noise += 2) {
+                for (double phase = 0; phase < dt; phase += 0.25) {
+                    check_modelled_release(stick[0], stick[1], dt, phase, noise);
+                }
+            }
         }
     }
 }

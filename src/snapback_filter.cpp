@@ -15,6 +15,7 @@ constexpr int32_t ARM_R = radius(SNAPBACK_ARM_PERCENT);
 constexpr int32_t ENTER_R = radius(SNAPBACK_ENTER_PERCENT);
 constexpr int32_t ESCAPE_R = radius(SNAPBACK_ESCAPE_PERCENT);
 constexpr int32_t SETTLE_R = radius(SNAPBACK_SETTLE_PERCENT);
+constexpr int32_t SWING_GATE_R = radius(SNAPBACK_SWING_GATE_PERCENT);
 constexpr int32_t GROWTH_R = radius(SNAPBACK_GROWTH_PERCENT);
 constexpr int32_t PUSH_R = radius(SNAPBACK_PUSH_PERCENT);
 constexpr int32_t SIDEWAYS_R = radius(SNAPBACK_SIDEWAYS_PERCENT);
@@ -74,7 +75,7 @@ void start_hold(SnapbackStick &stick, const int32_t dx, const int32_t dy, const 
     // The swing the stick is coming back from is the push itself. When the
     // spring has already carried it past centre, that swing is over.
     stick.last_peak = stick.arm_peak;
-    if (r >= SETTLE_R && along(stick, dx, dy) < 0) {
+    if (r >= SWING_GATE_R && along(stick, dx, dy) < 0) {
         stick.swing_side = -1;
         stick.swing_peak = static_cast<uint8_t>(r);
     } else {
@@ -110,9 +111,9 @@ bool __not_in_flash_func(keep_holding)(SnapbackStick &stick, const int32_t dx, c
     const int32_t cross = dx * stick.arm_y - dy * stick.arm_x;
     if (cross * cross >= SIDEWAYS_SQ * arm_sq(stick)) return false;
 
-    // A swing bigger than the one before. Near centre the side is noise, so
+    // A swing bigger than the one before. Near centre the side is jitter, so
     // only a clear deflection starts a new swing.
-    if (r >= SETTLE_R) {
+    if (r >= SWING_GATE_R) {
         const int8_t side = along(stick, dx, dy) < 0 ? -1 : 1;
         if (side != stick.swing_side) {
             stick.swing_side = side;
