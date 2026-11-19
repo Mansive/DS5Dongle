@@ -325,9 +325,17 @@ Details are in [docs/touchpad-mouse.md](docs/touchpad-mouse.md).
 centre when a stick is flicked and let go. Open the file in a browser, press a button on the
 controller, then flick a stick in different directions and let it spring back. Each release is
 recorded for 150 ms. The page shows how often the stick crossed the deadzone on the opposite
-side, the largest overshoot, and the deadzone or filter window that would hide it. It uses the
-browser's Gamepad API, so it works with any controller, through the dongle or not. Bounces
-shorter than the browser's sample interval can be missed, so treat the counts as a lower bound.
+side, the largest overshoot, and the deadzone or filter window that would hide it.
+
+It has two sources:
+
+- **Gamepad API** works with any controller. The browser checks it about every 4–5 ms, so short
+  bounces can fall between readings.
+- **WebHID** (Chrome or Edge) reads every report the controller sends. DualSense, DualSense
+  Edge, DualShock 4 and this dongle are timed by the controller's own sensor clock, so through
+  the dongle it shows the real Bluetooth report rate. Other HID gamepads are read from their
+  report descriptor and timed on arrival. Xbox controllers on a cable or the Xbox adapter are
+  not HID devices; use the Gamepad API for those.
 
 ## Custom button chords
 

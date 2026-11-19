@@ -18,6 +18,7 @@
   }
 }
 * { box-sizing: border-box; }
+[hidden] { display: none !important; }
 body {
   margin: 0; background: var(--bg); color: var(--text);
   font: 14px/1.45 system-ui, -apple-system, "Segoe UI", sans-serif;
@@ -83,6 +84,7 @@ tbody tr.sel { background: var(--accent-soft); }
       <canvas id="stick"></canvas>
       <dl class="status">
         <dt>Controller</dt><dd id="padName">Press any button on the controller</dd>
+        <dt>Timing</dt><dd id="timing">Browser polling</dd>
         <dt>Update rate</dt><dd id="rate">–</dd>
         <dt>State</dt><dd id="state">Waiting</dd>
       </dl>
@@ -91,10 +93,24 @@ tbody tr.sel { background: var(--accent-soft); }
     <section class="card">
       <h2>Settings</h2>
       <div class="row">
-        <label for="pad">Controller</label>
-        <select id="pad"><option value="">None detected</option></select>
+        <label for="source">Source</label>
+        <select id="source">
+          <option value="gamepad">Gamepad API (any controller)</option>
+          <option value="hid">WebHID (every report)</option>
+        </select>
+        <button id="hidConnect" hidden>Connect controller…</button>
+      </div>
+      <div class="row">
+        <span id="padPick" class="row" style="margin:0">
+          <label for="pad">Controller</label>
+          <select id="pad"><option value="">None detected</option></select>
+        </span>
         <label for="stickSel">Stick</label>
         <select id="stickSel"><option value="0">Left</option><option value="1">Right</option></select>
+        <span id="axesPick" class="row" style="margin:0" hidden>
+          <label for="rightAxes">Right stick axes</label>
+          <select id="rightAxes"><option value="z">Z / Rz</option><option value="r">Rx / Ry</option></select>
+        </span>
       </div>
       <div class="row">
         <label for="dz" style="min-width:9em">Deadzone</label>
@@ -110,6 +126,7 @@ tbody tr.sel { background: var(--accent-soft); }
         <button id="clear">Clear results</button>
         <button id="export">Download data (JSON)</button>
       </div>
+      <p class="note" id="sourceNote"></p>
       <p class="note">Set the deadzone to what your game uses. Changing it re-scores every recorded release.
         A release only counts when the stick reaches the deadzone within 40&nbsp;ms of leaving the flick ring, so
         slowly guiding it back is ignored.</p>
@@ -157,7 +174,7 @@ const RELEASE_MAX_MS = 40;  // must reach the deadzone this fast to count as a r
 const NOISE = 0.02;         // ignore sign changes smaller than this
 
 const $ = (id) => document.getElementById(id);
-const settings = { pad: null, stick: 0, dz: 0.10, flick: 0.85 };
+const settings = { source: "gamepad", pad: null, stick: 0, rightAxes: "z", dz: 0.10, flick: 0.85 };
 
 let recent = [];            // last second of samples {t, x, y}
 let lastTs = -1, lastX = NaN, lastY = NaN;
@@ -202,12 +219,14 @@ function escapeHtml(s) {
 const channel = new MessageChannel();
 channel.port1.onmessage = () => {
   poll();
-  if (document.hidden) setTimeout(() => channel.port2.postMessage(0), 200);
+  // WebHID pushes reports as events; the loop only has to close release windows.
+  if (document.hidden || settings.source === "hid") setTimeout(() => channel.port2.postMessage(0), document.hidden ? 200 : 5);
   else channel.port2.postMessage(0);
 };
 channel.port2.postMessage(0);
 
 function poll() {
+  if (settings.source === "hid") { checkReleaseTimeout(performance.now()); return; }
   const pad = currentPad();
   if (!pad) return;
   const ax = settings.stick * 2;
@@ -223,7 +242,14 @@ function poll() {
   addSample({ t, x, y });
 }
 
+function resetTracking() {
+  state = "idle"; rel = null; recent = [];
+  lastTs = -1; lastX = NaN; lastY = NaN;
+}
+
 function addSample(s) {
+  const prev = recent[recent.length - 1];
+  if (prev && s.t < prev.t) s.t = prev.t; // keep time monotonic
   recent.push(s);
   while (recent.length && s.t - recent[0].t > 1000) recent.shift();
   const r = Math.hypot(s.x, s.y);
@@ -268,6 +294,8 @@ function finishRelease() {
   const [dx, dy] = rel.dir;
   releases.push({
     id: nextId++,
+    source: sourceLabel(),
+    stick: settings.stick ? "right" : "left",
     dir: rel.dir,
     samples: rel.raw.map((p) => ({
       t: p.t - rel.t0,
@@ -278,6 +306,184 @@ function finishRelease() {
   selected = releases.length - 1;
   rel = null;
   dirty = true;
+}
+
+// ---- WebHID source ----------------------------------------------------------
+// Reads every input report instead of the browser's gamepad polling. Sony
+// controllers (and the DS5 dongle, which presents itself as a DualSense) carry
+// the controller's own sensor clock, so each reading gets the time it was taken.
+// Other HID gamepads are parsed from their report descriptor and timed on arrival.
+const SONY = 0x054c;
+const SONY_MODELS = {
+  0x0ce6: { name: "DualSense", kind: "ds" },
+  0x0df2: { name: "DualSense Edge", kind: "ds" },
+  0x05c4: { name: "DualShock 4", kind: "ds4" },
+  0x09cc: { name: "DualShock 4", kind: "ds4" },
+  0x0ba0: { name: "DualShock 4 adapter", kind: "ds4" },
+};
+let hid = null;       // { device, model, generic, clock, transport, timing, error }
+let hidError = "";
+
+function isGamepadInterface(d) {
+  return d.collections.some((c) => c.usagePage === 1 && (c.usage === 4 || c.usage === 5));
+}
+
+async function connectHid() {
+  hidError = "";
+  try {
+    const devices = await navigator.hid.requestDevice({
+      filters: [{ vendorId: SONY }, { usagePage: 1, usage: 5 }, { usagePage: 1, usage: 4 }],
+    });
+    const dev = devices.find(isGamepadInterface) || devices[0];
+    if (dev) await openHid(dev);
+  } catch (e) { hidError = e.message || String(e); }
+}
+
+async function reconnectGrantedHid() {
+  if (!navigator.hid || hid) return;
+  try {
+    const dev = (await navigator.hid.getDevices()).find(isGamepadInterface);
+    if (dev) await openHid(dev);
+  } catch (e) { hidError = e.message || String(e); }
+}
+
+async function openHid(dev) {
+  await closeHid();
+  try {
+    if (!dev.opened) await dev.open();
+  } catch (e) {
+    hidError = `Could not open ${dev.productName || "the device"}: ${e.message}. Another program (Steam, DS4Windows) may be holding it.`;
+    return;
+  }
+  const model = dev.vendorId === SONY ? SONY_MODELS[dev.productId] || null : null;
+  hid = { device: dev, model, generic: model ? null : buildGenericParser(dev), clock: null, transport: "", timing: "" };
+  if (!model && !hid.generic.axes[0x30]) hidError = "No stick axes found in this device's report descriptor.";
+  dev.addEventListener("inputreport", onHidReport);
+  // Over Bluetooth, Sony controllers send a reduced report until a feature report is read.
+  if (model) { try { await dev.receiveFeatureReport(model.kind === "ds" ? 0x05 : 0x02); } catch { /* not needed over USB */ } }
+  resetTracking();
+  syncSourceUi();
+}
+
+async function closeHid() {
+  if (!hid) return;
+  hid.device.removeEventListener("inputreport", onHidReport);
+  try { await hid.device.close(); } catch { /* already gone */ }
+  hid = null;
+}
+
+function onHidReport(e) {
+  if (settings.source !== "hid" || !hid) return;
+  const r = hid.model ? parseSony(hid.model.kind, e.reportId, e.data) : parseGeneric(hid.generic, e.reportId, e.data);
+  if (!r) return;
+  let t = e.timeStamp;
+  if (r.raw != null) {
+    t = controllerTime(r.raw, r.bits, r.unitUs, e.timeStamp);
+    if (t == null) return; // the same reading sent again (the dongle repeats at its USB rate)
+    hid.timing = "Controller clock";
+  } else {
+    hid.timing = "Report arrival";
+  }
+  hid.transport = r.transport || "";
+  addSample({ t, x: r.x, y: r.y });
+}
+
+// Sony layouts, from the Linux hid-playstation driver. WebHID strips the report ID.
+function parseSony(kind, id, d) {
+  let base, ts = null, transport;
+  if (kind === "ds") {
+    if (id === 0x01 && d.byteLength >= 31) { base = 0; transport = "USB"; }
+    else if (id === 0x31 && d.byteLength >= 32) { base = 1; transport = "Bluetooth"; }
+    else if (id === 0x01 && d.byteLength >= 4) { base = 0; transport = "Bluetooth (basic report)"; }
+    else return null;
+    if (transport !== "Bluetooth (basic report)") ts = { raw: d.getUint32(base + 27, true), bits: 32, unitUs: 1 / 3 };
+  } else {
+    if (id === 0x01 && d.byteLength >= 11) { base = 0; transport = "USB"; }
+    else if (id === 0x11 && d.byteLength >= 13) { base = 2; transport = "Bluetooth"; }
+    else if (id === 0x01 && d.byteLength >= 4) { base = 0; transport = "Bluetooth (basic report)"; }
+    else return null;
+    if (transport !== "Bluetooth (basic report)") ts = { raw: d.getUint16(base + 9, true), bits: 16, unitUs: 16 / 3 };
+  }
+  const o = base + settings.stick * 2;
+  const norm = (v) => Math.max(-1, Math.min(1, (v - 128) / 127.5));
+  return { x: norm(d.getUint8(o)), y: norm(d.getUint8(o + 1)), transport, ...(ts || {}) };
+}
+
+// Maps the controller's wrapping tick counter onto the page clock. The offset
+// tracks the lowest-latency report, so mapped times never run ahead of arrival.
+function controllerTime(raw, bits, unitUs, arrival) {
+  const c = hid.clock;
+  if (!c || c.bits !== bits) { hid.clock = { bits, last: raw, ms: 0, offset: arrival }; return arrival; }
+  if (raw === c.last) return null;
+  let ticks = raw - c.last;
+  if (ticks < 0) ticks += 2 ** bits;
+  const step = ticks * unitUs / 1000;
+  c.last = raw;
+  if (step > 1000) { c.ms = 0; c.offset = arrival; return arrival; } // controller clock restarted
+  c.ms += step;
+  c.offset = Math.min(c.offset, arrival - c.ms);
+  return c.offset + c.ms;
+}
+
+function buildGenericParser(dev) {
+  const axes = {}; // usage id on the Generic Desktop page -> field
+  const walk = (cols) => {
+    for (const c of cols) {
+      for (const rep of c.inputReports || []) {
+        let bit = 0;
+        for (const it of rep.items || []) {
+          const n = it.reportCount, size = it.reportSize;
+          for (let i = 0; i < n; i++) {
+            let u = null;
+            if (it.isRange) u = Math.min(it.usageMinimum + i, it.usageMaximum);
+            else if (it.usages && it.usages.length) u = it.usages[Math.min(i, it.usages.length - 1)];
+            if (u != null && !it.isConstant && (u >>> 16) === 1) {
+              const usage = u & 0xffff;
+              if (usage >= 0x30 && usage <= 0x35 && !axes[usage]) {
+                let min = it.logicalMinimum, max = it.logicalMaximum;
+                if (max <= min) { min = 0; max = 2 ** size - 1; }
+                axes[usage] = { reportId: rep.reportId, bit: bit + i * size, size, min, max, signed: min < 0 };
+              }
+            }
+          }
+          bit += n * size;
+        }
+      }
+      walk(c.children || []);
+    }
+  };
+  walk(dev.collections);
+  return { axes };
+}
+
+function readField(d, f) {
+  let v = 0;
+  for (let i = 0; i < f.size; i++) {
+    const b = f.bit + i, byte = b >> 3;
+    if (byte >= d.byteLength) return null;
+    if ((d.getUint8(byte) >> (b & 7)) & 1) v += 2 ** i;
+  }
+  if (f.signed && v >= 2 ** (f.size - 1)) v -= 2 ** f.size;
+  return Math.max(-1, Math.min(1, ((v - f.min) / (f.max - f.min)) * 2 - 1));
+}
+
+function genericAxisPair(g) {
+  if (!settings.stick) return [g.axes[0x30], g.axes[0x31]];
+  return settings.rightAxes === "z" ? [g.axes[0x32], g.axes[0x35]] : [g.axes[0x33], g.axes[0x34]];
+}
+
+function parseGeneric(g, id, d) {
+  const [fx, fy] = genericAxisPair(g);
+  if (!fx || !fy || fx.reportId !== id || fy.reportId !== id) return null;
+  const x = readField(d, fx), y = readField(d, fy);
+  return x == null || y == null ? null : { x, y, transport: "HID" };
+}
+
+function sourceLabel() {
+  if (settings.source !== "hid") return "Gamepad API";
+  if (!hid) return "WebHID";
+  const name = hid.model ? hid.model.name : hid.device.productName || "HID gamepad";
+  return ["WebHID", name, hid.transport, hid.timing].filter(Boolean).join(" · ");
 }
 
 // ---- Analysis ---------------------------------------------------------------
@@ -472,11 +678,15 @@ const stateText = { idle: "Waiting for a flick", held: "Holding: let go now", re
 let lastPadRefresh = 0;
 function frame(now) {
   if (now - lastPadRefresh > 500) { refreshPadList(); lastPadRefresh = now; }
-  const pad = currentPad();
-  $("padName").textContent = pad ? pad.id : "Press any button on the controller";
+  const hidMode = settings.source === "hid";
+  const live = hidMode ? !!hid : !!currentPad();
+  $("padName").textContent = hidMode
+    ? (hidError || (hid ? sourceLabel().replace(/^WebHID · /, "") : "Click “Connect controller…”"))
+    : (currentPad()?.id ?? "Press any button on the controller");
+  $("timing").textContent = hidMode ? (hid?.timing || "Waiting for reports") : "Browser polling";
   const hz = rateHz();
-  $("rate").textContent = !pad ? "–" : hz ? `${hz} updates/s` : "No updates (stick at rest)";
-  $("state").textContent = pad ? stateText[state] : "Waiting";
+  $("rate").textContent = !live ? "–" : hz ? `${hz} readings/s` : "No updates (stick at rest)";
+  $("state").textContent = live ? stateText[state] : "Waiting";
   drawStick();
   if (dirty) { renderResults(); dirty = false; }
   requestAnimationFrame(frame);
@@ -489,14 +699,46 @@ function syncLabels() {
 
 $("dz").addEventListener("input", (e) => { settings.dz = +e.target.value; syncLabels(); dirty = true; });
 $("flick").addEventListener("input", (e) => { settings.flick = +e.target.value; syncLabels(); });
-$("stickSel").addEventListener("change", (e) => { settings.stick = +e.target.value; state = "idle"; rel = null; recent = []; });
-$("pad").addEventListener("change", (e) => { settings.pad = +e.target.value; state = "idle"; rel = null; recent = []; });
+$("stickSel").addEventListener("change", (e) => { settings.stick = +e.target.value; resetTracking(); syncSourceUi(); });
+$("pad").addEventListener("change", (e) => { settings.pad = +e.target.value; resetTracking(); });
+$("rightAxes").addEventListener("change", (e) => { settings.rightAxes = e.target.value; resetTracking(); });
+$("source").addEventListener("change", async (e) => {
+  settings.source = e.target.value;
+  resetTracking();
+  syncSourceUi();
+  if (settings.source === "hid") await reconnectGrantedHid();
+});
+$("hidConnect").addEventListener("click", connectHid);
+
+function syncSourceUi() {
+  const hidMode = settings.source === "hid";
+  $("hidConnect").hidden = !hidMode;
+  $("padPick").hidden = hidMode;
+  $("axesPick").hidden = !(hidMode && hid && hid.generic && settings.stick === 1);
+  $("sourceNote").textContent = hidMode
+    ? "WebHID reads every report the controller sends, instead of the browser checking every 4–5 ms. Sony controllers and the DS5 dongle are timed by the controller's own clock; through the dongle that shows the real Bluetooth report rate. Other HID gamepads are timed on arrival. Chrome or Edge only."
+    : "The browser checks the controller every few milliseconds, so short bounces can fall between readings. Works with any controller.";
+}
+
+if (!navigator.hid) {
+  const opt = $("source").querySelector('option[value="hid"]');
+  opt.disabled = true;
+  opt.textContent += " – needs Chrome or Edge";
+} else {
+  navigator.hid.addEventListener("disconnect", (e) => {
+    if (hid && e.device === hid.device) { hid.device.removeEventListener("inputreport", onHidReport); hid = null; resetTracking(); }
+  });
+}
+syncSourceUi();
 $("clear").addEventListener("click", () => { releases = []; selected = -1; nextId = 1; dirty = true; });
 $("export").addEventListener("click", () => {
   const data = {
-    controller: currentPad()?.id ?? null, stick: settings.stick ? "right" : "left",
+    controller: settings.source === "hid" ? (hid?.device.productName ?? null) : (currentPad()?.id ?? null),
+    source: sourceLabel(), stick: settings.stick ? "right" : "left",
     deadzone: settings.dz, flick: settings.flick,
-    releases: releases.map((r) => ({ id: r.id, direction: r.dir, result: analyze(r, settings.dz), samples: r.samples })),
+    releases: releases.map((r) => ({
+      id: r.id, source: r.source, stick: r.stick, direction: r.dir, result: analyze(r, settings.dz), samples: r.samples,
+    })),
   };
   const a = document.createElement("a");
   a.href = URL.createObjectURL(new Blob([JSON.stringify(data, null, 2)], { type: "application/json" }));
