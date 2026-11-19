@@ -582,11 +582,9 @@ function renderResults() {
   } else {
     v.className = "verdict bad";
     v.innerHTML = `Snapback in <b>${snaps.length} of ${n}</b> releases at a ${pct(settings.dz)} deadzone` +
-      (rebs.length ? `, and the stick bounced back past it toward the pushed side in <b>${rebs.length}</b>` : "") + ". " +
-      `Hiding every bounce would take a deadzone of about <b>${pct(Math.min(1, maxDev + 0.02))}</b>, ` +
-      `or a snapback filter that holds the stick at centre for <b>${Math.ceil(holdMax + g)} ms</b> after it first ` +
-      `reaches the deadzone (${Math.ceil(holdP90 + g)} ms covers 90% of releases). ` +
-      `The hold has to last until the bouncing stops, including the moments the stick passes back through centre.`;
+      (rebs.length ? `; <b>${rebs.length} of ${n}</b> bounced back toward the pushed side` : "") + ". " +
+      `To hide it: a <b>${pct(Math.min(1, maxDev + 0.02))}</b> deadzone, or a <b>${Math.ceil(holdMax + g)} ms</b> ` +
+      `snapback filter (${Math.ceil(holdP90 + g)} ms covers 90%).`;
   }
 
   $("rateNote").innerHTML = gap > 4
