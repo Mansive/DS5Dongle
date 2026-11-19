@@ -99,6 +99,9 @@ void touchpad_mouse_reset() {
 }
 
 void touchpad_mouse_toggle() {
+    // With the touchpad mouse off in the config there is nothing to toggle.
+    // Flipping the flag anyway would leave it off once the config turns it on.
+    if (get_config().touchpad_mouse == TouchpadMouseOff) return;
     runtime_enabled = !runtime_enabled;
     motion = {};
     pending_x = pending_y = 0;
