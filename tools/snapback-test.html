@@ -95,8 +95,8 @@ tbody tr.sel { background: var(--accent-soft); }
       <div class="row">
         <label for="source">Source</label>
         <select id="source">
-          <option value="gamepad">Gamepad API (any controller)</option>
           <option value="hid">WebHID (every report)</option>
+          <option value="gamepad">Gamepad API (any controller)</option>
         </select>
         <button id="hidConnect" hidden>Connect controller…</button>
       </div>
@@ -174,7 +174,7 @@ const RELEASE_MAX_MS = 40;  // must reach the deadzone this fast to count as a r
 const NOISE = 0.02;         // ignore sign changes smaller than this
 
 const $ = (id) => document.getElementById(id);
-const settings = { source: "gamepad", pad: null, stick: 0, rightAxes: "z", dz: 0.10, flick: 0.85 };
+const settings = { source: navigator.hid ? "hid" : "gamepad", pad: null, stick: 0, rightAxes: "z", dz: 0.10, flick: 0.85 };
 
 let recent = [];            // last second of samples {t, x, y}
 let lastTs = -1, lastX = NaN, lastY = NaN;
@@ -766,7 +766,9 @@ if (!navigator.hid) {
     if (hid && e.device === hid.device) { hid.device.removeEventListener("inputreport", onHidReport); hid = null; resetTracking(); }
   });
 }
+$("source").value = settings.source;
 syncSourceUi();
+if (settings.source === "hid") reconnectGrantedHid();
 $("clear").addEventListener("click", () => { releases = []; selected = -1; nextId = 1; dirty = true; });
 $("export").addEventListener("click", () => {
   const data = {

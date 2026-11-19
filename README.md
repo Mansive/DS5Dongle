@@ -322,8 +322,9 @@ Details are in [docs/touchpad-mouse.md](docs/touchpad-mouse.md).
 ## Snapback tester
 
 [`tools/snapback-test.html`](tools/snapback-test.html) measures stick snapback: the bounce past
-centre when a stick is flicked and let go. Open the file in a browser, press a button on the
-controller, then flick a stick in different directions and let it spring back. Each release is
+centre when a stick is flicked and let go. Open the file in a browser, click **Connect
+controller…** and pick the controller (with the Gamepad API source, press a button on it
+instead), then flick a stick in different directions and let it spring back. Each release is
 recorded for 150 ms. The page shows how often the stick crossed the deadzone on the opposite
 side, the largest overshoot, how far it bounced back toward the pushed side, and the deadzone
 that would hide every bounce. It also shows how long a snapback filter would have to hold the
@@ -331,13 +332,13 @@ stick at centre, from when it first reaches the deadzone until the bouncing stop
 
 It has two sources:
 
-- **Gamepad API** works with any controller. The browser checks it about every 4–5 ms, so short
-  bounces can fall between readings.
-- **WebHID** (Chrome or Edge) reads every report the controller sends. DualSense, DualSense
-  Edge, DualShock 4 and this dongle are timed by the controller's own sensor clock, so through
-  the dongle it shows the real Bluetooth report rate. Other HID gamepads are read from their
-  report descriptor and timed on arrival. Xbox controllers on a cable or the Xbox adapter are
-  not HID devices; use the Gamepad API for those.
+- **WebHID** (the default in Chrome or Edge) reads every report the controller sends. DualSense,
+  DualSense Edge, DualShock 4 and this dongle are timed by the controller's own sensor clock, so
+  through the dongle it shows the real Bluetooth report rate. Other HID gamepads are read from
+  their report descriptor and timed on arrival. Xbox controllers on a cable or the Xbox adapter
+  are not HID devices; use the Gamepad API for those.
+- **Gamepad API** works with any controller and is used in browsers without WebHID. The browser
+  checks it about every 4–5 ms, so short bounces can fall between readings.
 
 ## Custom button chords
 
