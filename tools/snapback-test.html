@@ -212,7 +212,12 @@ function poll() {
   if (!pad) return;
   const ax = settings.stick * 2;
   const x = pad.axes[ax] ?? 0, y = pad.axes[ax + 1] ?? 0;
-  if (pad.timestamp === lastTs && x === lastX && y === lastY) return;
+  if (pad.timestamp === lastTs && x === lastX && y === lastY) {
+    // Browsers only deliver new data when the input changes, so a stick at rest
+    // sends nothing. Close the release window on the clock instead.
+    checkReleaseTimeout(performance.now());
+    return;
+  }
   const t = pad.timestamp && pad.timestamp !== lastTs ? pad.timestamp : performance.now();
   lastTs = pad.timestamp; lastX = x; lastY = y;
   addSample({ t, x, y });
@@ -238,12 +243,25 @@ function addSample(s) {
     if (r >= settings.flick) {               // pushed again: not a free release
       state = "held"; dir = [s.x / r, s.y / r]; rel = null; return;
     }
-    if (!rel.centred) {
-      if (along <= settings.dz) rel.centred = true;
-      else if (dt > RELEASE_MAX_MS) { state = "idle"; rel = null; return; } // guided back slowly
-    }
-    if (dt >= WINDOW_MS) { finishRelease(); state = "idle"; }
+    if (!rel.centred && along <= settings.dz) rel.centred = true;
+    checkReleaseTimeout(s.t);
   }
+}
+
+// Ends or abandons the release being recorded once enough time has passed.
+function checkReleaseTimeout(now) {
+  if (state !== "releasing") return;
+  const dt = now - rel.t0;
+  if (!rel.centred) {
+    if (dt > RELEASE_MAX_MS) { state = "idle"; rel = null; } // guided back slowly, or stuck
+    return;
+  }
+  if (dt < WINDOW_MS) return;
+  // The stick held its last position until the end of the window.
+  const last = rel.raw[rel.raw.length - 1];
+  if (last.t < rel.t0 + WINDOW_MS) rel.raw.push({ t: rel.t0 + WINDOW_MS, x: last.x, y: last.y });
+  finishRelease();
+  state = "idle";
 }
 
 function finishRelease() {
@@ -442,9 +460,11 @@ function drawPlot(res) {
   }
 }
 
+// Updates in the last second. The browser only sends updates while the stick
+// moves, so this reads low or zero at rest.
 function rateHz() {
-  if (recent.length < 2) return 0;
-  return Math.round((recent.length - 1) * 1000 / (recent[recent.length - 1].t - recent[0].t));
+  const now = performance.now();
+  return recent.filter((p) => now - p.t <= 1000).length;
 }
 
 // ---- UI loop ----------------------------------------------------------------
@@ -455,7 +475,7 @@ function frame(now) {
   const pad = currentPad();
   $("padName").textContent = pad ? pad.id : "Press any button on the controller";
   const hz = rateHz();
-  $("rate").textContent = pad && hz ? `${hz} Hz` : "–";
+  $("rate").textContent = !pad ? "–" : hz ? `${hz} updates/s` : "No updates (stick at rest)";
   $("state").textContent = pad ? stateText[state] : "Waiting";
   drawStick();
   if (dirty) { renderResults(); dirty = false; }
