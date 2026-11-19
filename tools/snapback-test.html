@@ -583,7 +583,7 @@ function renderResults() {
     v.className = "verdict bad";
     v.innerHTML = `Snapback in <b>${snaps.length} of ${n}</b> releases at a ${pct(settings.dz)} deadzone` +
       (rebs.length ? `; <b>${rebs.length} of ${n}</b> bounced back toward the pushed side` : "") + ". " +
-      `To hide it: a <b>${pct(Math.min(1, maxDev + 0.02))}</b> deadzone, or a <b>${Math.ceil(holdMax + g)} ms</b> ` +
+      `To hide it, use a <b>${pct(Math.min(1, maxDev + 0.02))}</b> deadzone, or a <b>${Math.ceil(holdMax + g)} ms</b> ` +
       `snapback filter (${Math.ceil(holdP90 + g)} ms covers 90%).`;
   }
 
