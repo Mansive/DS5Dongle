@@ -52,7 +52,7 @@ input[type=range] { flex: 1; min-width: 120px; accent-color: var(--accent); }
 .stat { border: 1px solid var(--line); border-radius: 8px; padding: 10px 12px; }
 .stat .k { color: var(--muted); font-size: 12px; }
 .stat .v { font-size: 22px; font-weight: 600; font-variant-numeric: tabular-nums; }
-.stat .s { color: var(--muted); font-size: 12px; }
+.stat .s { color: var(--muted); font-size: 12px; line-height: 1.35; min-height: 2.7em; }
 .verdict { margin-top: 14px; padding: 10px 12px; border-radius: 8px; background: var(--band); }
 .verdict.bad { background: var(--snap-soft); }
 .note { color: var(--muted); font-size: 12px; margin-top: 10px; }
@@ -567,7 +567,7 @@ function renderResults() {
     stat("Releases", n, "recorded"),
     stat("With snapback", n ? `${snaps.length} ${sub(`(${pct(snaps.length / n)})`)}` : "–", "past the deadzone, opposite side"),
     stat("Largest overshoot", n ? pct(maxOver) : "–", "opposite side, of full travel"),
-    stat("Largest rebound", n ? pct(maxReb) : "–", `back toward the pushed side${n ? `, ${rebs.length} past the deadzone` : ""}`),
+    stat("Largest rebound", n ? pct(maxReb) : "–", "back toward the pushed side"),
     stat("Filter hold needed", n && bouncy.length ? `${ms(Math.ceil(holdMax + g))}` : "–",
       n && bouncy.length ? `all releases; ${ms(Math.ceil(holdP90 + g))} covers 90%` : "until bouncing stops"),
     stat("Sample interval", ms(gap), "median, during releases"),
