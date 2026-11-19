@@ -507,7 +507,9 @@ function analyze(r, dz) {
   // pushed direction, the furthest it strays in any direction, and how long a
   // filter would have to hold the output at centre (until the last time it leaves
   // the deadzone, in any direction, gaps between swings included).
-  const inT = ss.find((p) => Math.hypot(p.a, p.q) <= dz)?.t ?? null;
+  // Back at centre along the pushed direction. The stick can jump straight past
+  // the deadzone between two readings, so landing inside it is not required.
+  const inT = ss.find((p) => p.t >= 0 && p.a <= dz)?.t ?? null;
   let rebound = 0, maxDev = 0, hold = 0;
   if (inT !== null) {
     let seenOpp = false;
