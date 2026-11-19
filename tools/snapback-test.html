@@ -156,7 +156,7 @@ tbody tr.sel { background: var(--accent-soft); }
       <div class="tablewrap">
         <table>
           <thead><tr>
-            <th>#</th><th>Direction</th><th>Overshoot</th><th>Past deadzone</th>
+            <th>#</th><th>Direction</th><th>Overshoot</th><th>Rebound</th><th>Hold needed</th>
             <th>Centre crossings</th><th>Centre reached</th><th>Settled</th><th>Samples</th>
           </tr></thead>
           <tbody id="rows"></tbody>
@@ -503,7 +503,34 @@ function analyze(r, dz) {
     if (centreT === null && p.a <= dz) centreT = p.t;
     if (Math.hypot(p.a, p.q) > dz) settled = next ? next.t : p.t;
   }
-  return { over, past, crossings, centreT, settled, n: ss.length, gap: median(gaps), snap: over > dz };
+  // After the stick first enters the deadzone: how far it swings back toward the
+  // pushed direction, the furthest it strays in any direction, and how long a
+  // filter would have to hold the output at centre (until the last time it leaves
+  // the deadzone, in any direction, gaps between swings included).
+  const inT = ss.find((p) => Math.hypot(p.a, p.q) <= dz)?.t ?? null;
+  let rebound = 0, maxDev = 0, hold = 0;
+  if (inT !== null) {
+    let seenOpp = false;
+    for (let i = 0; i < ss.length; i++) {
+      const p = ss[i], next = ss[i + 1];
+      if (p.t < inT) continue;
+      if (p.a < -dz) seenOpp = true;
+      if (seenOpp && p.a > rebound) rebound = p.a;
+      const dev = Math.hypot(p.a, p.q);
+      if (dev > maxDev) maxDev = dev;
+      if (dev > dz) hold = (next ? next.t : p.t) - inT;
+    }
+  }
+  return {
+    over, past, rebound, maxDev, hold, crossings, centreT, settled, n: ss.length, gap: median(gaps),
+    snap: over > dz, reb: rebound > dz,
+  };
+}
+
+function quantile(a, q) {
+  if (!a.length) return NaN;
+  const s = a.slice().sort((x, y) => x - y);
+  return s[Math.min(s.length - 1, Math.round(q * (s.length - 1)))];
 }
 
 function median(a) {
@@ -524,32 +551,42 @@ function dirLabel(d) {
 // ---- Results ----------------------------------------------------------------
 function renderResults() {
   const res = releases.map((r) => analyze(r, settings.dz));
-  const n = res.length, snaps = res.filter((r) => r.snap);
+  const n = res.length, snaps = res.filter((r) => r.snap), rebs = res.filter((r) => r.reb);
+  const bouncy = res.filter((r) => r.snap || r.reb);
   const maxOver = Math.max(0, ...res.map((r) => r.over));
-  const maxPast = Math.max(0, ...res.map((r) => r.past));
+  const maxReb = Math.max(0, ...res.map((r) => r.rebound));
+  const maxDev = Math.max(0, ...res.map((r) => r.maxDev));
+  const holds = res.map((r) => r.hold);
+  const holdP90 = quantile(holds, 0.9), holdMax = Math.max(0, ...holds);
   const gap = median(res.map((r) => r.gap).filter((g) => !isNaN(g)));
+  const g = isNaN(gap) ? 0 : gap;
+  const sub = (s) => `<span style="font-size:14px;color:var(--muted)">${s}</span>`;
 
   const stat = (k, v, s) => `<div class="stat"><div class="k">${k}</div><div class="v">${v}</div><div class="s">${s}</div></div>`;
   $("stats").innerHTML = [
     stat("Releases", n, "recorded"),
-    stat("With snapback", n ? `${snaps.length} <span style="font-size:14px;color:var(--muted)">(${pct(snaps.length / n)})</span>` : "–", "past the deadzone, opposite side"),
-    stat("Largest overshoot", n ? pct(maxOver) : "–", "of full travel"),
-    stat("Longest past deadzone", n && snaps.length ? ms(maxPast) : "–", "approximate, from samples"),
+    stat("With snapback", n ? `${snaps.length} ${sub(`(${pct(snaps.length / n)})`)}` : "–", "past the deadzone, opposite side"),
+    stat("Largest overshoot", n ? pct(maxOver) : "–", "opposite side, of full travel"),
+    stat("Largest rebound", n ? pct(maxReb) : "–", `back toward the pushed side${n ? `, ${rebs.length} past the deadzone` : ""}`),
+    stat("Filter hold needed", n && bouncy.length ? `${ms(Math.ceil(holdMax + g))}` : "–",
+      n && bouncy.length ? `all releases; ${ms(Math.ceil(holdP90 + g))} covers 90%` : "until bouncing stops"),
     stat("Sample interval", ms(gap), "median, during releases"),
   ].join("");
 
   const v = $("verdict");
   if (!n) { v.className = "verdict"; v.textContent = "No releases yet."; }
-  else if (!snaps.length) {
+  else if (!bouncy.length) {
     v.className = "verdict";
-    v.innerHTML = `No snapback seen in ${n} release${n > 1 ? "s" : ""} at a ${pct(settings.dz)} deadzone. ` +
+    v.innerHTML = `No bounce past a ${pct(settings.dz)} deadzone in ${n} release${n > 1 ? "s" : ""}. ` +
       `The largest overshoot was ${pct(maxOver)}.` + (n < 20 ? " Try at least 20 releases in several directions." : "");
   } else {
-    const window = Math.ceil(maxPast + (isNaN(gap) ? 0 : gap));
     v.className = "verdict bad";
-    v.innerHTML = `Snapback in <b>${snaps.length} of ${n}</b> releases at a ${pct(settings.dz)} deadzone. ` +
-      `A deadzone of about <b>${pct(Math.min(1, maxOver + 0.02))}</b> would hide every bounce seen here, ` +
-      `or a snapback filter would need a window of roughly <b>${window} ms</b>.`;
+    v.innerHTML = `Snapback in <b>${snaps.length} of ${n}</b> releases at a ${pct(settings.dz)} deadzone` +
+      (rebs.length ? `, and the stick bounced back past it toward the pushed side in <b>${rebs.length}</b>` : "") + ". " +
+      `Hiding every bounce would take a deadzone of about <b>${pct(Math.min(1, maxDev + 0.02))}</b>, ` +
+      `or a snapback filter that holds the stick at centre for <b>${Math.ceil(holdMax + g)} ms</b> after it first ` +
+      `reaches the deadzone (${Math.ceil(holdP90 + g)} ms covers 90% of releases). ` +
+      `The hold has to last until the bouncing stops, including the moments the stick passes back through centre.`;
   }
 
   $("rateNote").innerHTML = gap > 4
@@ -559,15 +596,16 @@ function renderResults() {
   const rows = res.map((r, i) => ({ r, i })).reverse();
   $("rows").innerHTML = rows.length ? rows.map(({ r, i }) => `
     <tr data-i="${i}" class="${i === selected ? "sel" : ""}">
-      <td>${releases[i].id}${r.snap ? '<span class="badge">snapback</span>' : ""}</td>
+      <td>${releases[i].id}${r.snap ? '<span class="badge">snapback</span>' : ""}${r.reb ? '<span class="badge">rebound</span>' : ""}</td>
       <td>${dirLabel(releases[i].dir)}</td>
       <td>${pct(r.over)}</td>
-      <td>${r.snap ? ms(r.past) : "–"}</td>
+      <td>${pct(r.rebound)}</td>
+      <td>${r.hold > 0 ? ms(r.hold) : "–"}</td>
       <td>${r.crossings}</td>
       <td>${ms(r.centreT)}</td>
       <td>${ms(r.settled)}</td>
       <td>${r.n}</td>
-    </tr>`).join("") : '<tr><td colspan="8" class="empty">Releases appear here.</td></tr>';
+    </tr>`).join("") : '<tr><td colspan="9" class="empty">Releases appear here.</td></tr>';
   drawPlot(res);
 }
 
@@ -656,8 +694,9 @@ function drawPlot(res) {
   if (sel) {
     const pts = clip(sel);
     line(pts, "q", css("--trace2"), 1.25, 0.9, [4, 3]);
-    line(pts, "a", res[selected].snap ? css("--snap") : css("--accent"), 2, 1);
-    ctx.fillStyle = res[selected].snap ? css("--snap") : css("--accent");
+    const bad = res[selected].snap || res[selected].reb;
+    line(pts, "a", bad ? css("--snap") : css("--accent"), 2, 1);
+    ctx.fillStyle = bad ? css("--snap") : css("--accent");
     for (const p of pts) { ctx.beginPath(); ctx.arc(X(p.t), Y(p.a), 2.5, 0, Math.PI * 2); ctx.fill(); }
   } else {
     ctx.fillStyle = css("--muted"); ctx.textAlign = "center"; ctx.textBaseline = "middle";

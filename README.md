@@ -325,7 +325,9 @@ Details are in [docs/touchpad-mouse.md](docs/touchpad-mouse.md).
 centre when a stick is flicked and let go. Open the file in a browser, press a button on the
 controller, then flick a stick in different directions and let it spring back. Each release is
 recorded for 150 ms. The page shows how often the stick crossed the deadzone on the opposite
-side, the largest overshoot, and the deadzone or filter window that would hide it.
+side, the largest overshoot, how far it bounced back toward the pushed side, and the deadzone
+that would hide every bounce. It also shows how long a snapback filter would have to hold the
+stick at centre, from when it first reaches the deadzone until the bouncing stops.
 
 It has two sources:
 
