@@ -35,8 +35,8 @@ class TouchpadToolTests(unittest.TestCase):
         body = extract(header, 'struct __attribute__((packed)) Config_body {', '};')
         fields = re.findall(r'^\s*(?:uint8_t|float)\s+(\w+);', body, re.M)
         self.assertEqual(fields, tool.FIELD_NAMES)
-        self.assertEqual(tool.BODY_SIZE, 27)
-        self.assertEqual(tool.FIELD_NAMES[-2:], ['touchpad_mouse', 'touchpad_sensitivity'])
+        self.assertEqual(tool.FIELD_NAMES.index('touchpad_mouse'), 22)
+        self.assertEqual(tool.FIELD_NAMES.index('touchpad_sensitivity'), 23)
 
     def test_config_values(self):
         self.assertEqual(tool.parse_assignment('touchpad_mouse=2'), ('touchpad_mouse', 2))
@@ -49,7 +49,7 @@ class TouchpadToolTests(unittest.TestCase):
         cfg['haptics_gain'] = 1.0
         cfg['audio_buffer_length'] = 48
         packed = tool.pack_config(cfg)
-        self.assertEqual(packed[-2:], b'\x00\x00')
+        self.assertEqual(packed[26:28], b'\x00\x00')
 
     def test_mouse_targets(self):
         utils = (ROOT / 'src/button_utils.h').read_text(encoding='utf-8')

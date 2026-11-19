@@ -21,6 +21,7 @@
 #include "config.h"
 #include "status_gpio.h"
 #include "touchpad_mouse.h"
+#include "snapback_filter.h"
 #include "fake_ds5.h"
 #include "wake.h"
 #include "usb.h"
@@ -656,6 +657,7 @@ static void __not_in_flash_func(hci_packet_handler)(uint8_t packet_type, uint16_
             wake_on_bt_disconnect();
             button_remap_reset();
             touchpad_mouse_reset();
+            snapback_filter_reset();
 #if !ENABLE_SERIAL
             if (get_config().enable_wake && !tud_suspended()) {
                 usb_reconnect(true);

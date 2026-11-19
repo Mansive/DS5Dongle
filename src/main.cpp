@@ -18,6 +18,7 @@
 #include "usb.h"
 #include "button_shortcut.h"
 #include "touchpad_mouse.h"
+#include "snapback_filter.h"
 #include "hardware/clocks.h"
 #include "hardware/vreg.h"
 #include "hardware/watchdog.h"
@@ -151,6 +152,9 @@ void __not_in_flash_func(on_bt_data)(CHANNEL_TYPE channel, uint8_t *data, uint16
         // modes silently breaks wake while the host is suspended.
         wake_on_bt_input(data + 3, len - 3);
         memcpy(&interrupt_in_data, data + 3, sizeof(interrupt_in_data));
+        // Runs on every controller report, before any USB report is built from it.
+        snapback_filter_apply(snapback_filter, interrupt_in_data, get_config().snapback_left,
+                              get_config().snapback_right);
         if (!usb_keyboard_only && !usb_reconfiguring) {
             button_shortcut_tick(interrupt_in_data);
             touchpad_mouse_on_report(interrupt_in_data);

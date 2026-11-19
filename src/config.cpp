@@ -10,6 +10,7 @@
 #include "bt.h"
 #include "button_shortcut.h"
 #include "button_utils.h"
+#include "snapback_filter.h"
 #include "status_gpio.h"
 #include "utils.h"
 #include "hardware/flash.h"
@@ -164,6 +165,15 @@ void config_valid() {
         body->touchpad_sensitivity > TOUCHPAD_SENSITIVITY_MAX) {
         body->touchpad_sensitivity = TOUCHPAD_SENSITIVITY_DEFAULT;
         printf("[Config] touchpad_sensitivity is invalid\n");
+    }
+    // Flash saved by older firmware reads 0xFF here: the filter starts off.
+    if (body->snapback_left > SNAPBACK_HOLD_MAX_MS) {
+        body->snapback_left = 0;
+        printf("[Config] snapback_left is invalid\n");
+    }
+    if (body->snapback_right > SNAPBACK_HOLD_MAX_MS) {
+        body->snapback_right = 0;
+        printf("[Config] snapback_right is invalid\n");
     }
     button_remap_valid();
     shortcut_valid();

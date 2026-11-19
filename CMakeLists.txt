@@ -126,6 +126,8 @@ add_executable(ds5-bridge
         src/button_remap.h
         src/touchpad_mouse.cpp
         src/touchpad_mouse.h
+        src/snapback_filter.cpp
+        src/snapback_filter.h
         src/button_utils.cpp
         src/button_utils.h
 )

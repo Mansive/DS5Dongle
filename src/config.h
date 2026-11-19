@@ -42,6 +42,8 @@ struct __attribute__((packed)) Config_body {
     uint8_t sleep_on_dock; // bool: 0 disable(default), 1 enable (suspend host PC on dock)
     uint8_t touchpad_mouse; // TouchpadMouseMode: 0 off (default), 1 on, 2 on and touch hidden from the game
     uint8_t touchpad_sensitivity; // [1,20], default 8; 0 reads as "unset" and becomes the default
+    uint8_t snapback_left; // [0,SNAPBACK_HOLD_MAX_MS] ms the left stick is held at centre after a release (0: off)
+    uint8_t snapback_right; // same for the right stick
 };
 
 enum TouchpadMouseMode : uint8_t {

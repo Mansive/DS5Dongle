@@ -30,6 +30,7 @@ Examples:
   python config_tool.py remap square=nomap  # clear (restore identity mapping)
   python config_tool.py remap r1=mouseleft l1=mouseright  # mouse clicks
   python config_tool.py set touchpad_mouse=1 touchpad_sensitivity=10
+  python config_tool.py set snapback_left=20 snapback_right=36
   python config_tool.py remap --reset       # reset all button remaps
   python config_tool.py layer
   python config_tool.py layer --layer 1 hold=LeftPaddle --face-dpad
@@ -312,6 +313,8 @@ FIELDS = [
     ("touchpad_mouse",     "u8",    lambda v: v in (0, 1, 2),    "0:off 1:on 2:on, touchpad hidden from the game"),
     # 0 is what older firmware reads back as; the firmware turns it into 8.
     ("touchpad_sensitivity", "u8",  lambda v: 0 <= v <= 20,      "[1, 20] pointer speed (default 8)"),
+    ("snapback_left",      "u8",    lambda v: 0 <= v <= 60,      "[0, 60] ms the left stick is held at centre after a release (0 off)"),
+    ("snapback_right",     "u8",    lambda v: 0 <= v <= 60,      "[0, 60] ms the right stick is held at centre after a release (0 off)"),
 ]
 FIELD_NAMES = [f[0] for f in FIELDS]
 # Little-endian, no padding -- matches __attribute__((packed)) Config_body.
