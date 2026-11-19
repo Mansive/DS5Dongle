@@ -15,14 +15,15 @@ overshot up to 72% and took about 38 ms. A game with a 10% deadzone reads most
 of those bounces as input.
 
 The filter watches each stick. When it sees a release, it reports that stick at
-centre (`0x80`, `0x80`) for the configured time and then passes the stick
-through again.
+centre (`0x80`, `0x80`) until the bounce settles, at most for the configured
+time, and then passes the stick through again. Movement that a spring bounce
+cannot make ends the hold at once.
 
 ## Settings
 
 | Setting | Values | Default |
 |---------|--------|---------|
-| `snapback_left` | `0`–`60` ms the left stick is held at centre after a release, `0` off | `0` |
+| `snapback_left` | `0`–`60` ms the left stick is held at centre at most after a release, `0` off | `0` |
 | `snapback_right` | same for the right stick | `0` |
 
 ```sh
@@ -47,8 +48,13 @@ in different directions. Use its **Filter hold needed** figure. That figure is
 the time from the stick first coming back to the deadzone until it stops leaving
 it, plus one reading.
 
-Replaying the recorded releases through the firmware filter gave these results
-at a 10% deadzone.
+The setting is the longest hold. Since the hold ends once the stick settles,
+setting it a little above that figure costs little on releases that settle
+sooner.
+
+Replaying the recorded releases through the first version of the filter, which
+always held for the full time and had only the 90% escape, gave these results
+at a 10% deadzone. They have not been replayed through the current rules.
 
 | Stick | Hold | Releases caught | Bounces left past 10% |
 |-------|------|-----------------|-----------------------|
@@ -61,8 +67,8 @@ same result except for one JS13 release that a finger slowed down. It bounced
 only 10%, and the filter rightly left it alone.
 
 A longer hold costs nothing while the stick is resting. It only delays a
-deliberate move that starts within the hold, and only if that move stays under
-90%.
+deliberate move that starts within the hold and that none of the escape rules
+below recognise.
 
 ## How a release is detected
 
@@ -75,11 +81,29 @@ All thresholds are fractions of full travel, measured from `0x80`. They are in
    near centre. The spring often carries it straight past centre between two
    reports. The spring covers this distance in 2–4 ms, so a slower return is
    the player moving the stick and is not held.
-3. **Holding.** The stick is reported at centre until the hold time has passed
-   since the release. A push of 90% or more ends the hold at once. Measured
-   bounces stay well below that.
+3. **Holding.** The stick is reported at centre until one of these happens.
+   - The hold time has passed since the release.
+   - **Settled.** The stick has stayed within 8% of centre for 8 ms. A bounce
+     big enough to pass a 10% deadzone swings through that zone faster.
+   - **Hard push.** The stick is at 90% or more. Measured bounces stay well
+     below that.
+   - **Sideways.** The stick is 35% or more to the side of the line it was
+     pushed along. Bounces stay on that line.
+   - **Bigger swing.** Each swing of a bounce is smaller than the one before.
+     A swing that reaches 25% and is at least 15% larger than the one before
+     is the player. The push itself counts as the first swing.
+   - **Steady push.** The stick is at 25% or more and has not moved back
+     towards centre for 10 ms. A bounce turns around within a few ms.
 4. When the hold ends the stick passes through again, and a new push of 50% or
    more arms it for the next release.
+
+The host tests feed modelled releases through the filter, with the stock
+stick's 54% overshoot and the JS13's 72% overshoot and slower swing, sampled
+every 1, 2 and 4 ms at every phase. None of the escape rules fires on them
+before the bounce falls under 10%. Shortening the steady push time to 8 ms or
+the settle time to 5 ms makes some of them leak at 4 ms sampling, so the
+chosen values have only a small margin there. The sideways rule is not covered
+by these models, since they bounce along a straight line.
 
 Time comes from the controller's `SensorTimestamp` (units of 1/3 µs), so the
 hold does not depend on when Bluetooth packets arrive. The counter wraps every
@@ -104,3 +128,6 @@ This builds `tests/snapback_filter_test.cpp` with `g++` against
 
 - Hardware test over Bluetooth with both sticks, in a game with a known
   deadzone.
+- Replay recorded releases (the snapback tester's JSON export) through the
+  current rules, to check the settle and escape thresholds against real
+  sticks, including bounces after a diagonal release.

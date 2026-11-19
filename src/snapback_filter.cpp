@@ -7,30 +7,130 @@ namespace {
 constexpr int32_t STICK_CENTRE = 0x80;
 constexpr int32_t STICK_RANGE = 127;
 
-constexpr int32_t radius_sq(const uint8_t percent) {
-    const int32_t r = STICK_RANGE * percent / 100;
-    return r * r;
+constexpr int32_t radius(const uint8_t percent) {
+    return STICK_RANGE * percent / 100;
 }
 
-constexpr int32_t ARM_SQ = radius_sq(SNAPBACK_ARM_PERCENT);
-constexpr int32_t ENTER_SQ = radius_sq(SNAPBACK_ENTER_PERCENT);
-constexpr int32_t ESCAPE_SQ = radius_sq(SNAPBACK_ESCAPE_PERCENT);
+constexpr int32_t ARM_R = radius(SNAPBACK_ARM_PERCENT);
+constexpr int32_t ENTER_R = radius(SNAPBACK_ENTER_PERCENT);
+constexpr int32_t ESCAPE_R = radius(SNAPBACK_ESCAPE_PERCENT);
+constexpr int32_t SETTLE_R = radius(SNAPBACK_SETTLE_PERCENT);
+constexpr int32_t GROWTH_R = radius(SNAPBACK_GROWTH_PERCENT);
+constexpr int32_t PUSH_R = radius(SNAPBACK_PUSH_PERCENT);
+constexpr int32_t SIDEWAYS_R = radius(SNAPBACK_SIDEWAYS_PERCENT);
+constexpr int32_t ENTER_SQ = ENTER_R * ENTER_R;
+constexpr int32_t SIDEWAYS_SQ = SIDEWAYS_R * SIDEWAYS_R;
+// A deflection that drops by no more than this still counts as growing.
+constexpr int32_t RISE_NOISE = 2;
 constexpr uint32_t RELEASE_TICKS = SNAPBACK_RELEASE_MS * SNAPBACK_TICKS_PER_MS;
+constexpr uint32_t SETTLE_TICKS = SNAPBACK_SETTLE_MS * SNAPBACK_TICKS_PER_MS;
+constexpr uint32_t RISE_TICKS = SNAPBACK_RISE_MS * SNAPBACK_TICKS_PER_MS;
+
+// All products below stay in 32 bits: deflections are at most 181 and a held
+// stick is under ESCAPE_R. The RP2040 has no 64-bit multiply instruction, and
+// its library routine runs from flash.
+static_assert(ARM_R < 64, "back_at_centre bounds assume a 50% arm radius");
+
+// Integer square root of a squared deflection (at most 2 * 128 * 128).
+uint32_t __not_in_flash_func(deflection)(uint32_t sq) {
+    uint32_t root = 0;
+    uint32_t bit = 1u << 14;
+    while (bit > sq) bit >>= 2;
+    while (bit != 0) {
+        if (sq >= root + bit) {
+            sq -= root + bit;
+            root = (root >> 1) + bit;
+        } else {
+            root >>= 1;
+        }
+        bit >>= 2;
+    }
+    return root;
+}
+
+int32_t arm_sq(const SnapbackStick &stick) {
+    return stick.arm_x * stick.arm_x + stick.arm_y * stick.arm_y;
+}
+
+// Position along the direction the stick was pushed, scaled by |arm|.
+int32_t along(const SnapbackStick &stick, const int32_t dx, const int32_t dy) {
+    return dx * stick.arm_x + dy * stick.arm_y;
+}
 
 // True once the stick's position along the direction it was pushed is within
-// SNAPBACK_ENTER_PERCENT of centre or past it. Called only below
-// SNAPBACK_ARM_PERCENT, so |d| < 64 and |arm| < 182: along stays under 11700
-// and every product fits in 32 bits. The RP2040 has no 64-bit multiply
-// instruction, and its library routine runs from flash.
-bool __not_in_flash_func(back_at_centre)(const SnapbackStick &stick, const int32_t dx, const int32_t dy) {
-    const int32_t along = dx * stick.arm_x + dy * stick.arm_y;
-    if (along <= 0) return true;
-    const int32_t arm_sq = stick.arm_x * stick.arm_x + stick.arm_y * stick.arm_y;
-    // along / |arm| <= enter, squared to stay in integers.
-    return along * along <= ENTER_SQ * arm_sq;
+// SNAPBACK_ENTER_PERCENT of centre or past it. Called only below ARM_R.
+bool back_at_centre(const SnapbackStick &stick, const int32_t dx, const int32_t dy) {
+    const int32_t a = along(stick, dx, dy);
+    if (a <= 0) return true;
+    // a / |arm| <= enter, squared to stay in integers.
+    return a * a <= ENTER_SQ * arm_sq(stick);
 }
 
-static_assert(ARM_SQ < 64 * 64, "back_at_centre bounds assume a 50% arm radius");
+void start_hold(SnapbackStick &stick, const int32_t dx, const int32_t dy, const int32_t r,
+                const uint32_t timestamp) {
+    stick.armed = false;
+    stick.holding = true;
+    stick.hold_from = timestamp;
+    // The swing the stick is coming back from is the push itself. When the
+    // spring has already carried it past centre, that swing is over.
+    stick.last_peak = stick.arm_peak;
+    if (r >= SETTLE_R && along(stick, dx, dy) < 0) {
+        stick.swing_side = -1;
+        stick.swing_peak = static_cast<uint8_t>(r);
+    } else {
+        stick.swing_side = 1;
+        stick.swing_peak = stick.arm_peak;
+    }
+    stick.prev_r = static_cast<uint8_t>(r);
+    stick.rise_from = timestamp;
+    stick.settling = r < SETTLE_R;
+    stick.settle_from = timestamp;
+}
+
+// One report while holding. False when the hold ends, so the report passes.
+bool __not_in_flash_func(keep_holding)(SnapbackStick &stick, const int32_t dx, const int32_t dy, const int32_t r,
+                                       const uint32_t timestamp, const uint8_t hold_ms) {
+    // Unsigned subtraction keeps working across the timestamp wrap.
+    if (timestamp - stick.hold_from >= hold_ms * SNAPBACK_TICKS_PER_MS) return false;
+    if (r >= ESCAPE_R) return false;
+
+    // Settled near centre.
+    if (r < SETTLE_R) {
+        if (!stick.settling) {
+            stick.settling = true;
+            stick.settle_from = timestamp;
+        } else if (timestamp - stick.settle_from >= SETTLE_TICKS) {
+            return false;
+        }
+    } else {
+        stick.settling = false;
+    }
+
+    // Sideways from the line the stick bounces along.
+    const int32_t cross = dx * stick.arm_y - dy * stick.arm_x;
+    if (cross * cross >= SIDEWAYS_SQ * arm_sq(stick)) return false;
+
+    // A swing bigger than the one before. Near centre the side is noise, so
+    // only a clear deflection starts a new swing.
+    if (r >= SETTLE_R) {
+        const int8_t side = along(stick, dx, dy) < 0 ? -1 : 1;
+        if (side != stick.swing_side) {
+            stick.swing_side = side;
+            stick.last_peak = stick.swing_peak;
+            stick.swing_peak = static_cast<uint8_t>(r);
+        } else if (r > stick.swing_peak) {
+            stick.swing_peak = static_cast<uint8_t>(r);
+        }
+        if (r >= PUSH_R && r >= stick.last_peak + GROWTH_R) return false;
+    }
+
+    // A deflection that keeps growing.
+    if (r + RISE_NOISE < stick.prev_r) stick.rise_from = timestamp;
+    stick.prev_r = static_cast<uint8_t>(r);
+    if (r >= PUSH_R && timestamp - stick.rise_from >= RISE_TICKS) return false;
+
+    return true;
+}
 
 void centre(uint8_t &x, uint8_t &y) {
     x = STICK_CENTRE;
@@ -47,46 +147,43 @@ void snapback_filter_reset() {
 
 // The step and apply functions run in RAM on every controller report, like
 // on_bt_data that calls them, so an XIP cache miss never delays the report.
-bool __not_in_flash_func(snapback_step)(SnapbackStick &stick, const uint8_t x, const uint8_t y, const uint32_t timestamp,
-                   const uint8_t hold_ms) {
+bool __not_in_flash_func(snapback_step)(SnapbackStick &stick, const uint8_t x, const uint8_t y,
+                                        const uint32_t timestamp, const uint8_t hold_ms) {
     if (hold_ms == 0) {
         stick = {};
         return false;
     }
     const int32_t dx = x - STICK_CENTRE;
     const int32_t dy = y - STICK_CENTRE;
-    const int32_t r_sq = dx * dx + dy * dy;
+    const auto r = static_cast<int32_t>(deflection(static_cast<uint32_t>(dx * dx + dy * dy)));
 
     if (stick.holding) {
-        // Unsigned subtraction keeps working across the timestamp wrap.
-        if (timestamp - stick.hold_from < hold_ms * SNAPBACK_TICKS_PER_MS && r_sq < ESCAPE_SQ) {
-            return true;
-        }
+        if (keep_holding(stick, dx, dy, r, timestamp, hold_ms)) return true;
         stick.holding = false;
         stick.armed = false;
     }
 
-    if (r_sq >= ARM_SQ) {
+    if (r >= ARM_R) {
+        if (!stick.armed) stick.arm_peak = 0;
         stick.armed = true;
         stick.armed_at = timestamp;
         stick.arm_x = static_cast<int16_t>(dx);
         stick.arm_y = static_cast<int16_t>(dy);
+        if (r > stick.arm_peak) stick.arm_peak = static_cast<uint8_t>(r);
         return false;
     }
     if (stick.armed && timestamp - stick.armed_at > RELEASE_TICKS) {
         stick.armed = false;
     }
     if (stick.armed && back_at_centre(stick, dx, dy)) {
-        stick.armed = false;
-        stick.holding = true;
-        stick.hold_from = timestamp;
+        start_hold(stick, dx, dy, r, timestamp);
         return true;
     }
     return false;
 }
 
-void __not_in_flash_func(snapback_filter_apply)(SnapbackFilter &filter, USBGetStateData &state, const uint8_t left_ms,
-                           const uint8_t right_ms) {
+void __not_in_flash_func(snapback_filter_apply)(SnapbackFilter &filter, USBGetStateData &state,
+                                                const uint8_t left_ms, const uint8_t right_ms) {
     const uint32_t timestamp = state.SensorTimestamp;
     if (snapback_step(filter.left, state.LeftStickX, state.LeftStickY, timestamp, left_ms)) {
         centre(state.LeftStickX, state.LeftStickY);

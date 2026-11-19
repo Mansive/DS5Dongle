@@ -312,8 +312,8 @@ FIELDS = [
     ("touchpad_mouse",     "u8",    lambda v: v in (0, 1, 2),    "0:off 1:on 2:on, touchpad hidden from the game"),
     # 0 is what older firmware reads back as; the firmware turns it into 8.
     ("touchpad_sensitivity", "u8",  lambda v: 0 <= v <= 20,      "[1, 20] pointer speed (default 8)"),
-    ("snapback_left",      "u8",    lambda v: 0 <= v <= 60,      "[0, 60] ms the left stick is held at centre after a release (0 off)"),
-    ("snapback_right",     "u8",    lambda v: 0 <= v <= 60,      "[0, 60] ms the right stick is held at centre after a release (0 off)"),
+    ("snapback_left",      "u8",    lambda v: 0 <= v <= 60,      "[0, 60] ms the left stick is held at most at centre after a release (0 off)"),
+    ("snapback_right",     "u8",    lambda v: 0 <= v <= 60,      "[0, 60] ms the right stick is held at most at centre after a release (0 off)"),
 ]
 FIELD_NAMES = [f[0] for f in FIELDS]
 # Little-endian, no padding -- matches __attribute__((packed)) Config_body.
