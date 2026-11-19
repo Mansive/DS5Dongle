@@ -30,10 +30,9 @@ python tools/config_tool.py set snapback_left=20 snapback_right=36
 ```
 
 In the web config, both settings are in the **Snapback filter** section of the
-General page. The web config shows the section only for firmware that also
-reports the touchpad mouse settings, since there is no other way to tell from
-the config whether the firmware has the filter. A build from between the two
-features shows the section, but the settings do nothing there.
+General page. The web config needs firmware whose config reply reaches these
+two bytes. With older firmware it shows a notice to update the firmware and
+locks every setting, leaving only **Reboot to Bootloader** available.
 
 The two bytes follow `touchpad_sensitivity` at the end of `Config_body`
 (offsets 27 and 28). Flash written by older firmware reads `0xFF` there, which
