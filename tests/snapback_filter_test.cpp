@@ -191,6 +191,30 @@ static uint8_t jitter(const uint8_t raw, const int amount, uint32_t &seed) {
     return static_cast<uint8_t>(v < 0 ? 0 : v > 255 ? 255 : v);
 }
 
+static void test_release_across_dropout() {
+    // Recorded right stick release (results release 18): no reports for about
+    // 25 ms around the release, and the stick comes back mid-bounce at 24%.
+    // The gap does not count toward the 15 ms window, so the first crossing
+    // at 8 ms starts the hold and the 34% bounce after it is hidden.
+    const Sample s[] = {
+        {-25, 1.0, 0},       {0, 0.245, -0.012},  {4.41, 0.328, 0.052}, {5.67, 0.175, 0.040},
+        {8.19, -0.133, 0.016}, {9.44, -0.342, -0.042}, {11.96, -0.304, -0.049}, {14.48, 0.023, -0.004},
+        {15.74, 0.154, 0.012}, {18.26, 0.206, 0.035}, {19.52, 0.043, 0.016}, {22.04, -0.121, -0.010},
+        {24.56, -0.058, -0.013}, {28.33, 0.095, -0.001}, {32.11, -0.071, 0.005}, {35.89, 0.039, -0.007},
+    };
+    SnapbackStick st;
+    for (const auto &p : s) {
+        const bool held = step(st, p, 55);
+        if (held != (p.t >= 8)) std::printf("  t=%.2f held=%d\n", p.t, held);
+        CHECK(held == (p.t >= 8));
+    }
+    // A stick that was already let go slowly before the gap stays unheld.
+    SnapbackStick slow;
+    const Sample before[] = {{0, 1.0, 0}, {6, 0.45, 0}, {12, 0.35, 0}, {18, 0.3, 0}};
+    for (const auto &p : before) CHECK(!step(slow, p, 55));
+    CHECK(!step(slow, {45, -0.3, 0}, 55));
+}
+
 // A spring release modelled as a damped swing: back at centre after
 // swing_ms / 2 and overshooting by `overshoot` after swing_ms, with up to
 // `noise` counts of jitter on both axes. Sampled every dt ms starting at
@@ -285,6 +309,7 @@ int main() {
     test_bigger_swing_escapes();
     test_slow_push_escapes();
     test_modelled_bounces_stay_held();
+    test_release_across_dropout();
     test_apply_centres_only_that_stick();
     if (failures) {
         std::printf("%d failure(s)\n", failures);

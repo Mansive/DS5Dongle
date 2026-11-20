@@ -24,6 +24,7 @@ constexpr int32_t SIDEWAYS_SQ = SIDEWAYS_R * SIDEWAYS_R;
 // A deflection that drops by no more than this still counts as growing.
 constexpr int32_t RISE_NOISE = 2;
 constexpr uint32_t RELEASE_TICKS = SNAPBACK_RELEASE_MS * SNAPBACK_TICKS_PER_MS;
+constexpr uint32_t GAP_TICKS = SNAPBACK_GAP_MS * SNAPBACK_TICKS_PER_MS;
 constexpr uint32_t SETTLE_TICKS = SNAPBACK_SETTLE_MS * SNAPBACK_TICKS_PER_MS;
 constexpr uint32_t RISE_TICKS = SNAPBACK_RISE_MS * SNAPBACK_TICKS_PER_MS;
 
@@ -157,6 +158,12 @@ bool __not_in_flash_func(snapback_step)(SnapbackStick &stick, const uint8_t x, c
     const int32_t dx = x - STICK_CENTRE;
     const int32_t dy = y - STICK_CENTRE;
     const auto r = static_cast<int32_t>(deflection(static_cast<uint32_t>(dx * dx + dy * dy)));
+
+    // After a dropout the stick can come back already past centre. Leave the
+    // gap out of the release window so that release is still caught.
+    const uint32_t since_last = timestamp - stick.last_at;
+    stick.last_at = timestamp;
+    if (stick.armed && since_last > GAP_TICKS) stick.armed_at += since_last;
 
     if (stick.holding) {
         if (keep_holding(stick, dx, dy, r, timestamp, hold_ms)) return true;

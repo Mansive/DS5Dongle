@@ -80,7 +80,11 @@ All thresholds are fractions of full travel, measured from `0x80`. They are in
    the remembered direction comes back to 15% or less. It does not have to land
    near centre. The spring often carries it straight past centre between two
    reports. The spring covers this distance in 2–4 ms, so a slower return is
-   the player moving the stick and is not held.
+   the player moving the stick and is not held. A gap of more than 6 ms
+   between reports does not count toward the 15 ms. Over Bluetooth, reports
+   sometimes stop for 15–25 ms, and when that happens during a release the
+   stick comes back already bouncing. A recorded release like that got past
+   the filter before this rule.
 3. **Holding.** The stick is reported at centre until one of these happens.
    - The hold time has passed since the release.
    - **Settled.** The stick has stayed within 3% of centre for 8 ms. A bounce

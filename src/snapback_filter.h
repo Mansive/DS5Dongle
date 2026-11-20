@@ -21,6 +21,9 @@ constexpr uint8_t SNAPBACK_ENTER_PERCENT = 15;
 // that distance in 2-4 ms, so this leaves room for a report every 4-8 ms. A
 // slower return is the player moving the stick, not the spring.
 constexpr uint32_t SNAPBACK_RELEASE_MS = 15;
+// A gap of more than this between reports (a dropped link) does not count
+// toward SNAPBACK_RELEASE_MS, since the release may have happened inside it.
+constexpr uint32_t SNAPBACK_GAP_MS = 6;
 // While holding, a push this far still goes through at once. Bounces measured
 // on stock and aftermarket sticks stay well below it.
 constexpr uint8_t SNAPBACK_ESCAPE_PERCENT = 90;
@@ -53,6 +56,7 @@ constexpr uint32_t SNAPBACK_TICKS_PER_MS = 3000;
 
 // Deflections below are in 1/127 of full travel, measured from centre.
 struct SnapbackStick {
+    uint32_t last_at = 0;     // Timestamp of the previous report
     bool armed = false;       // Was at SNAPBACK_ARM_PERCENT recently
     uint8_t arm_peak = 0;     // Largest deflection since it was armed
     uint32_t armed_at = 0;    // Timestamp it was last there
