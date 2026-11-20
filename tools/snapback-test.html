@@ -129,7 +129,8 @@ tbody tr.sel { background: var(--accent-soft); }
       <p class="note" id="sourceNote"></p>
       <p class="note">Set the deadzone to what your game uses. Changing it re-scores every recorded release.
         A release only counts when the stick reaches the deadzone within 40&nbsp;ms of leaving the flick ring, so
-        slowly guiding it back is ignored.</p>
+        slowly guiding it back is ignored. Pushing it back to the ring on the same side throws the release away.
+        Moving it across to the opposite side does not.</p>
     </section>
 
     <section class="card full">
@@ -266,7 +267,9 @@ function addSample(s) {
     rel.raw.push(s);
     const dt = s.t - rel.t0;
     const along = s.x * rel.dir[0] + s.y * rel.dir[1];
-    if (r >= settings.flick) {               // pushed again: not a free release
+    // Back at the ring on the side it was pushed: not a free release. The
+    // ring on the opposite side is a slam across, which is still recorded.
+    if (r >= settings.flick && along > 0) {
       state = "held"; dir = [s.x / r, s.y / r]; rel = null; return;
     }
     if (!rel.centred && along <= settings.dz) rel.centred = true;
