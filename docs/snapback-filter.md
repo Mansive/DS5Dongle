@@ -104,7 +104,9 @@ All thresholds are fractions of full travel, measured from `0x80`. They are in
 `src/snapback_filter.h`.
 
 1. **Armed.** The stick is at 35% or further. Its position and the furthest
-   it reached are remembered. Let go from 35–50%, the TMR stick still
+   it reached are remembered. If it reaches the other side without passing
+   centre, as during a report gap, the furthest point starts over, so it always
+   belongs to the push the stick is let go from. Let go from 35–50%, the TMR stick still
    overshot by up to half that push, which is why the arm point is not higher.
 2. **Released.** Within 15 ms of last being armed, the stick's position along
    the remembered direction comes back to 15% or less. It does not have to land

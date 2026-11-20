@@ -136,6 +136,16 @@ static void test_overshoot_after_dropout() {
     check_held_between(side, 55, 1e9);
 }
 
+static void test_peak_starts_over_on_other_side() {
+    // Full push right, then reports stop while the thumb slams across, and
+    // the next one shows 85% left. That push is let go, and 72% right during
+    // the hold is past 80% of the 85% push, so it goes through. Judged
+    // against the earlier full push it would have been held.
+    const Sample s[] = {{0, 1.0, 0},    {2, 1.0, 0},     {20, -0.85, 0},
+                        {22, -0.85, 0}, {24, -0.3, 0},   {26, -0.05, 0}, {28, 0.72, 0}};
+    check_held_between(s, 55, 26, 28);
+}
+
 static void test_jump_past_centre() {
     // With a report every 4 ms the stick can go from 60% straight to 40% past
     // centre without a report near centre.
@@ -329,6 +339,7 @@ int main() {
     test_reversal_goes_through();
     test_rise_restarts_after_gap();
     test_hard_push_escapes();
+    test_peak_starts_over_on_other_side();
     test_jump_past_centre();
     test_sideways_move_is_not_held();
     test_diagonal();

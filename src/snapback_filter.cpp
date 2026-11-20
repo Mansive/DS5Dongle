@@ -172,7 +172,9 @@ bool __not_in_flash_func(snapback_step)(SnapbackStick &stick, const uint8_t x, c
             start_hold(stick, r, timestamp);
             return true;
         }
-        if (!stick.armed || r > stick.peak_r) stick.peak_r = static_cast<uint8_t>(r);
+        // The peak belongs to the push on this side. Moving to the other side
+        // without passing centre, as during a report gap, starts a new one.
+        if (!stick.armed || along(stick, dx, dy) <= 0 || r > stick.peak_r) stick.peak_r = static_cast<uint8_t>(r);
         stick.armed = true;
         stick.armed_at = timestamp;
         stick.arm_x = static_cast<int16_t>(dx);
