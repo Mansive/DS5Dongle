@@ -1,5 +1,6 @@
 // Host test for src/snapback_filter.cpp. Built by tests/test_snapback_filter.py.
 #include <cmath>
+#include <cstddef>
 #include <cstdint>
 #include <cstdio>
 #include <cstring>
@@ -42,28 +43,32 @@ static bool step(SnapbackStick &s, const Sample &p, const uint8_t hold, const ui
     return snapback_step(s, axis(p.x), axis(p.y), base + ms(p.t + 100), hold);
 }
 
+// Feeds samples to a fresh stick and checks that exactly those from `from` ms
+// up to `until` ms are held.
+template <std::size_t N>
+static void check_held_between(const Sample (&samples)[N], const uint8_t hold, const double from,
+                               const double until = 1e9) {
+    SnapbackStick s;
+    for (const auto &p : samples) {
+        const bool held = step(s, p, hold);
+        const bool expect = p.t >= from && p.t < until;
+        if (held != expect) std::printf("  t=%.2f held=%d\n", p.t, held);
+        CHECK(held == expect);
+    }
+}
+
 static void test_off_passes_through() {
     SnapbackStick s;
     for (const auto &p : release) CHECK(!step(s, p, 0));
 }
 
 static void test_release_is_held() {
-    SnapbackStick s;
-    for (const auto &p : release) {
-        const bool held = step(s, p, 30);
-        // Enters the 15% zone at 4 ms; the hold lasts 30 ms from there.
-        const bool expect = p.t >= 4 && p.t < 34;
-        if (held != expect) std::printf("  t=%.0f held=%d\n", p.t, held);
-        CHECK(held == expect);
-    }
+    // Enters the 15% zone at 4 ms; the hold lasts 30 ms from there.
+    check_held_between(release, 30, 4, 34);
 }
 
 static void test_short_hold_ends_early() {
-    SnapbackStick s;
-    for (const auto &p : release) {
-        const bool held = step(s, p, 10);
-        CHECK(held == (p.t >= 4 && p.t < 14));
-    }
+    check_held_between(release, 10, 4, 14);
 }
 
 static void test_slow_return_is_not_held() {
@@ -82,30 +87,21 @@ static void test_small_flick_is_not_held() {
     for (const auto &p : small) CHECK(!step(s, p, 30));
 }
 
-static void check_sequence(const Sample *samples, const bool *expect, int n, uint8_t hold = 30);
-
 static void test_partial_release_is_held() {
     // Let go from 45%: the aftermarket stick still overshoots by a third of that.
-    SnapbackStick s;
     const Sample partial[] = {{0, 0.45, 0}, {2, 0.25, 0}, {4, 0.05, 0}, {6, -0.15, 0}, {8, -0.1, 0}, {10, 0.02, 0}};
-    for (const auto &p : partial) CHECK(step(s, p, 30) == (p.t >= 4));
+    check_held_between(partial, 30, 4);
 }
 
 static void test_reversal_goes_through() {
     // The thumb moves the stick across centre fast enough to look like a
     // release, and stops 12% past it. Once it has stayed there for 10 ms, the
     // hold ends.
-    SnapbackStick s;
     const Sample across[] = {{0, 1.0, 0},    {2, 0.6, 0},    {4, 0.3, 0},    {6, 0.1, 0},    {8, -0.05, 0},
                              {10, -0.1, 0},  {12, -0.12, 0}, {14, -0.12, 0}, {16, -0.12, 0}, {18, -0.12, 0},
                              {20, -0.12, 0}};
-    for (const auto &p : across) {
-        const bool held = step(s, p, 55);
-        // Last drop at 8 ms, so the stick has stayed put long enough at 18 ms.
-        const bool expect = p.t >= 6 && p.t < 18;
-        if (held != expect) std::printf("  t=%.0f held=%d\n", p.t, held);
-        CHECK(held == expect);
-    }
+    // Last drop at 8 ms, so the stick has stayed put long enough at 18 ms.
+    check_held_between(across, 55, 6, 18);
 }
 
 static void test_rise_restarts_after_gap() {
@@ -113,8 +109,7 @@ static void test_rise_restarts_after_gap() {
     // put, since it may have bounced in between.
     const Sample s[] = {{0, 1.0, 0},    {2, 0.5, 0},    {4, 0.1, 0},    {6, -0.1, 0},   {8, -0.2, 0},
                         {28, -0.2, 0},  {30, -0.2, 0},  {34, -0.2, 0},  {38, -0.2, 0},  {40, -0.2, 0}};
-    const bool expect[] = {false, false, true, true, true, true, true, true, false, false};
-    check_sequence(s, expect, 10, 55);
+    check_held_between(s, 55, 4, 38);
 }
 
 static void test_hard_push_escapes() {
@@ -133,24 +128,19 @@ static void test_overshoot_after_dropout() {
     // 14 ms around the release, and the first one after is 67% past centre.
     // That is the overshoot, not a new push, so it is held.
     const Sample s[] = {{-18.89, 1.0, 0}, {-13.85, 1.0, 0}, {0, -0.674, 0.01}, {16.37, 0.0, 0}, {20.14, 0.0, 0}};
-    const bool expect[] = {false, false, true, true, true};
-    check_sequence(s, expect, 5, 55);
+    check_held_between(s, 55, 0);
     // A full flick across goes through, and so does a 60% push to the side.
     const Sample flick[] = {{0, 1.0, 0}, {2, -1.0, 0}, {4, -1.0, 0}};
-    const bool flick_expect[] = {false, false, false};
-    check_sequence(flick, flick_expect, 3, 55);
+    check_held_between(flick, 55, 1e9);
     const Sample side[] = {{0, 1.0, 0}, {2, -0.3, 0.6}, {4, -0.3, 0.6}};
-    const bool side_expect[] = {false, false, false};
-    check_sequence(side, side_expect, 3, 55);
+    check_held_between(side, 55, 1e9);
 }
 
 static void test_jump_past_centre() {
     // With a report every 4 ms the stick can go from 60% straight to 40% past
     // centre without a report near centre.
-    SnapbackStick s;
     const Sample jump[] = {{0, 1.0, 0}, {4, 0.6, 0}, {8, -0.4, 0.1}, {12, 0.2, 0}, {16, 0.0, 0}};
-    const bool expect[] = {false, false, true, true, true};
-    for (int i = 0; i < 5; i++) CHECK(step(s, jump[i], 30) == expect[i]);
+    check_held_between(jump, 30, 8);
 }
 
 static void test_sideways_move_is_not_held() {
@@ -162,10 +152,8 @@ static void test_sideways_move_is_not_held() {
 }
 
 static void test_diagonal() {
-    SnapbackStick s;
     const Sample diag[] = {{0, 0.7, 0.7}, {2, 0.3, 0.3}, {4, 0.05, 0.05}, {6, -0.3, -0.3}};
-    const bool expect[] = {false, false, true, true};
-    for (int i = 0; i < 4; i++) CHECK(step(s, diag[i], 30) == expect[i]);
+    check_held_between(diag, 30, 4);
 }
 
 static void test_timestamp_wrap() {
@@ -182,16 +170,6 @@ static void test_repeated_releases() {
     for (int n = 0; n < 3; n++) {
         const uint32_t base = ms(200 * n);
         for (const auto &p : release) CHECK(step(s, p, 30, base) == (p.t >= 4 && p.t < 34));
-    }
-}
-
-// Feeds samples with hold 30 and checks which are held.
-static void check_sequence(const Sample *samples, const bool *expect, const int n, const uint8_t hold) {
-    SnapbackStick s;
-    for (int i = 0; i < n; i++) {
-        const bool held = step(s, samples[i], hold);
-        if (held != expect[i]) std::printf("  t=%.0f held=%d\n", samples[i].t, held);
-        CHECK(held == expect[i]);
     }
 }
 
@@ -214,8 +192,7 @@ static void test_settle_ends_hold_early() {
 
 static void test_sideways_push_escapes() {
     const Sample s[] = {{0, 1.0, 0}, {2, 0.4, 0}, {4, 0.1, 0}, {6, -0.3, 0}, {8, 0, 0.5}, {10, 0, 0.5}};
-    const bool expect[] = {false, false, true, true, false, false};
-    check_sequence(s, expect, 6);
+    check_held_between(s, 30, 4, 8);
 }
 
 static void test_slow_decaying_bounce_stays_held() {
@@ -227,12 +204,7 @@ static void test_slow_decaying_bounce_stays_held() {
         {11.33, 0.455, 0},  {20.15, 0.392, 0},  {21.4, 0.267, 0},   {23.92, -0.243, 0}, {26.44, -0.4, 0},
         {27.7, -0.384, 0},  {30.22, -0.039, 0}, {31.48, 0.071, 0},  {33.99, 0.251, 0}, {36.51, 0.086, 0},
     };
-    SnapbackStick st;
-    for (const auto &p : s) {
-        const bool held = step(st, p, 55);
-        if (held != (p.t >= 3)) std::printf("  t=%.2f held=%d\n", p.t, held);
-        CHECK(held == (p.t >= 3));
-    }
+    check_held_between(s, 55, 3);
 }
 
 static void test_slow_push_escapes() {
@@ -240,8 +212,7 @@ static void test_slow_push_escapes() {
     // 10 ms after the release, so it goes through.
     const Sample s[] = {{0, 1.0, 0},   {2, 0.4, 0},   {4, 0.1, 0},   {6, -0.15, 0}, {8, -0.2, 0},
                         {10, -0.25, 0}, {12, -0.3, 0}, {14, -0.35, 0}, {16, -0.4, 0}};
-    const bool expect[] = {false, false, true, true, true, true, true, false, false};
-    check_sequence(s, expect, 9);
+    check_held_between(s, 30, 4, 14);
 }
 
 // Up to `amount` counts of repeatable jitter on a raw axis.
@@ -263,12 +234,7 @@ static void test_release_across_dropout() {
         {15.74, 0.154, 0.012}, {18.26, 0.206, 0.035}, {19.52, 0.043, 0.016}, {22.04, -0.121, -0.010},
         {24.56, -0.058, -0.013}, {28.33, 0.095, -0.001}, {32.11, -0.071, 0.005}, {35.89, 0.039, -0.007},
     };
-    SnapbackStick st;
-    for (const auto &p : s) {
-        const bool held = step(st, p, 55);
-        if (held != (p.t >= 8)) std::printf("  t=%.2f held=%d\n", p.t, held);
-        CHECK(held == (p.t >= 8));
-    }
+    check_held_between(s, 55, 8);
     // A stick that was already let go slowly before the gap stays unheld.
     SnapbackStick slow;
     const Sample before[] = {{0, 1.0, 0}, {6, 0.6, 0}, {12, 0.34, 0}, {18, 0.3, 0}, {24, 0.25, 0}};

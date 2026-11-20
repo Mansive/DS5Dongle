@@ -18,18 +18,17 @@ constexpr int32_t PUSH_R = radius(SNAPBACK_PUSH_PERCENT);
 constexpr int32_t SIDEWAYS_R = radius(SNAPBACK_SIDEWAYS_PERCENT);
 constexpr int32_t ENTER_SQ = ENTER_R * ENTER_R;
 constexpr int32_t SIDEWAYS_SQ = SIDEWAYS_R * SIDEWAYS_R;
-// A deflection that drops by no more than this still counts as growing.
+// A deflection that drops by no more than this still counts as staying put.
 constexpr int32_t RISE_NOISE = 2;
 constexpr uint32_t RELEASE_TICKS = SNAPBACK_RELEASE_MS * SNAPBACK_TICKS_PER_MS;
 constexpr uint32_t GAP_TICKS = SNAPBACK_GAP_MS * SNAPBACK_TICKS_PER_MS;
 constexpr uint32_t SETTLE_TICKS = SNAPBACK_SETTLE_MS * SNAPBACK_TICKS_PER_MS;
 constexpr uint32_t RISE_TICKS = SNAPBACK_RISE_MS * SNAPBACK_TICKS_PER_MS;
 
-// All products below stay in 32 bits: deflections are at most 181 and a held
-// stick is under SNAPBACK_ESCAPE_PERCENT of that. The RP2040 has no 64-bit
-// multiply instruction, and its library routine runs from flash.
+// All products below stay in 32 bits, since deflections are at most 181. The
+// RP2040 has no 64-bit multiply instruction, and its library routine runs from
+// flash.
 static_assert(ARM_R < 64, "back_at_centre bounds assume at most a 50% arm radius");
-static_assert(SNAPBACK_ESCAPE_PERCENT <= 100, "sideways bounds assume a held stick is under its push");
 
 // Integer square root of a squared deflection (at most 2 * 128 * 128).
 uint32_t __not_in_flash_func(deflection)(uint32_t sq) {
@@ -73,7 +72,7 @@ bool escaped(const SnapbackStick &stick, const int32_t r) {
 }
 
 // True when the stick is SNAPBACK_SIDEWAYS_PERCENT or more off the line it was
-// pushed along. Called only when not escaped.
+// pushed along.
 bool sideways(const SnapbackStick &stick, const int32_t dx, const int32_t dy) {
     const int32_t cross = dx * stick.arm_y - dy * stick.arm_x;
     return cross * cross >= SIDEWAYS_SQ * arm_sq(stick);
@@ -91,7 +90,7 @@ void start_hold(SnapbackStick &stick, const int32_t r, const uint32_t timestamp)
 
 // One report while holding. False when the hold ends, so the report passes.
 bool __not_in_flash_func(keep_holding)(SnapbackStick &stick, const int32_t dx, const int32_t dy, const int32_t r,
-                                       const uint32_t timestamp, const bool after_gap, const uint8_t hold_ms) {
+                                       const uint32_t timestamp, const uint8_t hold_ms) {
     // Unsigned subtraction keeps working across the timestamp wrap.
     if (timestamp - stick.hold_from >= hold_ms * SNAPBACK_TICKS_PER_MS) return false;
     if (escaped(stick, r)) return false;
@@ -111,9 +110,8 @@ bool __not_in_flash_func(keep_holding)(SnapbackStick &stick, const int32_t dx, c
     // Sideways from the line the stick bounces along.
     if (sideways(stick, dx, dy)) return false;
 
-    // A deflection that grows or stays put. The stick may have bounced during
-    // a gap in the reports, so the time starts over after one.
-    if (after_gap || r + RISE_NOISE < stick.prev_r) stick.rise_from = timestamp;
+    // A deflection that grows or stays put.
+    if (r + RISE_NOISE < stick.prev_r) stick.rise_from = timestamp;
     stick.prev_r = static_cast<uint8_t>(r);
     if (r >= PUSH_R && timestamp - stick.rise_from >= RISE_TICKS) return false;
 
@@ -145,14 +143,19 @@ bool __not_in_flash_func(snapback_step)(SnapbackStick &stick, const uint8_t x, c
     const int32_t dy = y - STICK_CENTRE;
     const auto r = static_cast<int32_t>(deflection(static_cast<uint32_t>(dx * dx + dy * dy)));
 
-    // After a dropout the stick can come back already past centre. Leave the
-    // gap out of the release window so that release is still caught.
+    // A gap in the reports (a dropped link) hides what the stick did during it.
     const uint32_t since_last = timestamp - stick.last_at;
     stick.last_at = timestamp;
-    if (stick.armed && since_last > GAP_TICKS) stick.armed_at += since_last;
+    if (since_last > GAP_TICKS) {
+        // It can come back already past centre, so leave the gap out of the
+        // release window and that release is still caught.
+        if (stick.armed) stick.armed_at += since_last;
+        // It may have bounced, so a steady push starts over.
+        if (stick.holding) stick.rise_from = timestamp;
+    }
 
     if (stick.holding) {
-        if (keep_holding(stick, dx, dy, r, timestamp, since_last > GAP_TICKS, hold_ms)) return true;
+        if (keep_holding(stick, dx, dy, r, timestamp, hold_ms)) return true;
         stick.holding = false;
         stick.armed = false;
     }

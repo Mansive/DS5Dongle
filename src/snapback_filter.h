@@ -63,7 +63,7 @@ struct SnapbackStick {
     uint32_t hold_from = 0;   // Timestamp the hold started
     // While holding:
     uint8_t prev_r = 0;       // Deflection in the previous report
-    uint32_t rise_from = 0;   // Timestamp the deflection last dropped
+    uint32_t rise_from = 0;   // Timestamp it last dropped or reports resumed
     bool settling = false;    // Within SNAPBACK_SETTLE_PERCENT of centre
     uint32_t settle_from = 0; // Timestamp it got there
 };

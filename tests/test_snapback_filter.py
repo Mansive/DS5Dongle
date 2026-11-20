@@ -31,10 +31,12 @@ class SnapbackToolTests(unittest.TestCase):
     def test_config_values(self):
         filt = (ROOT / 'src/snapback_filter.h').read_text(encoding='utf-8')
         limit = int(re.search(r'SNAPBACK_HOLD_MAX_MS = (\d+);', filt).group(1))
-        self.assertEqual(tool.parse_assignment(f'snapback_left={limit}'), ('snapback_left', limit))
-        self.assertEqual(tool.parse_assignment('snapback_right=0'), ('snapback_right', 0))
-        with self.assertRaises(SystemExit):
-            tool.parse_assignment(f'snapback_right={limit + 1}')
+        self.assertEqual(tool.SNAPBACK_HOLD_MAX_MS, limit)
+        for name in ('snapback_left', 'snapback_right'):
+            self.assertEqual(tool.parse_assignment(f'{name}={limit}'), (name, limit))
+            self.assertEqual(tool.parse_assignment(f'{name}=0'), (name, 0))
+            with self.assertRaises(SystemExit):
+                tool.parse_assignment(f'{name}={limit + 1}')
         # Older firmware reads back without the new fields; they pad to 0 (off).
         cfg = tool.unpack_config(bytes(tool.BODY_SIZE))
         cfg['haptics_gain'] = 1.0

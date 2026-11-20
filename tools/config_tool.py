@@ -161,6 +161,7 @@ KEY_USAGE_MAX = 0x73       # src/usb_descriptors.h SHORTCUT_KEY_USAGE_MAX
 CONSUMER_USAGE_MAX = 0x2FF # src/usb_descriptors.h SHORTCUT_CONSUMER_USAGE_MAX
 SHORTCUT_STORAGE_SIZE = SHORTCUT_COUNT * SHORTCUT_SIZE
 LAYER_COUNT = 3            # src/button_remap.h BUTTON_LAYER_COUNT
+SNAPBACK_HOLD_MAX_MS = 80  # src/snapback_filter.h SNAPBACK_HOLD_MAX_MS
 LAYER_NUMBERS = range(1, LAYER_COUNT + 1)
 LAYER_HOLD_BYTES = 3       # hold bitmask: bit n = ButtonId Square + n
 LAYER_HOLD_FIRST = BUTTON_NAMES.index("Square")
@@ -312,8 +313,10 @@ FIELDS = [
     ("touchpad_mouse",     "u8",    lambda v: v in (0, 1, 2),    "0:off 1:on 2:on, touchpad hidden from the game"),
     # 0 is what older firmware reads back as; the firmware turns it into 8.
     ("touchpad_sensitivity", "u8",  lambda v: 0 <= v <= 20,      "[1, 20] pointer speed (default 8)"),
-    ("snapback_left",      "u8",    lambda v: 0 <= v <= 80,      "[0, 80] ms the left stick is held at most at centre after a release (0 off)"),
-    ("snapback_right",     "u8",    lambda v: 0 <= v <= 80,      "[0, 80] ms the right stick is held at most at centre after a release (0 off)"),
+    ("snapback_left",      "u8",    lambda v: 0 <= v <= SNAPBACK_HOLD_MAX_MS,
+     f"[0, {SNAPBACK_HOLD_MAX_MS}] ms the left stick is held at most at centre after a release (0 off)"),
+    ("snapback_right",     "u8",    lambda v: 0 <= v <= SNAPBACK_HOLD_MAX_MS,
+     f"[0, {SNAPBACK_HOLD_MAX_MS}] ms the right stick is held at most at centre after a release (0 off)"),
 ]
 FIELD_NAMES = [f[0] for f in FIELDS]
 # Little-endian, no padding -- matches __attribute__((packed)) Config_body.
