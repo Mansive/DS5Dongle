@@ -3,8 +3,9 @@
 Status: implemented in firmware, `tools/config_tool.py`, and the web UI
 (`ds5dongle-config-web`, branch `feat/touchpad-mouse`). The host tests pass,
 and the filter was replayed against recorded releases of a stock DualSense Edge
-stick and a Besavior JS13 Pro+ stick. It has **not** been tested on hardware
-yet.
+stick and a Besavior JS13 Pro+ stick. On hardware, through the dongle with holds
+of 25 ms (left) and 65 ms (right), the snapback tester recorded no overshoot
+past centre. It has **not** been tested in a game yet.
 
 ## What it does
 
@@ -183,7 +184,7 @@ This builds `tests/snapback_filter_test.cpp` with `g++` against
 
 ## Open items
 
-- Hardware test over Bluetooth with both sticks, in a game with a known
-  deadzone.
+- Test in a game with a known deadzone, with both sticks, including how quick
+  direction changes feel.
 - Recordings from other sticks, to check the 80% hard push margin on TMR
   sticks that overshoot more than this one.
