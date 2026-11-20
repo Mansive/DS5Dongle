@@ -75,11 +75,28 @@ stick's bounce is slower to die out. Its last swing past 3% came as late as
 A longer hold costs nothing while the stick is resting. It only delays a
 deliberate move that starts within the hold and that none of the escape rules
 below recognise. To check that, 123 deliberate moves across centre were
-recorded over Bluetooth. Each started from about 40% to full and stopped 3–85% past
-centre on the other side, with the thumb on the stick throughout. With a 65 ms
-hold, once the stick was more than 5% past centre the filter held it at most
-7.6 ms, and for 5 ms or less in most cases. Moves that stopped 10% or more past
-centre were held at most 6.3 ms.
+recorded over Bluetooth. Each started from about 40% to full and stopped 3–85%
+past centre on the other side, with the thumb on the stick throughout. With a
+65 ms hold, once the stick was more than 5% past centre the filter held it at
+most 7.6 ms, and for 5 ms or less in most cases. Moves that stopped 10% or more
+past centre were held at most 6.3 ms.
+
+Slams from one edge to the other are the hardest case. 74 slams were recorded
+over Bluetooth, driven by the thumb in every direction at full speed. The
+fastest crossed from 35% to 15% in 3–4 ms, as fast as the spring's 1–8.5 ms,
+so the release window cannot tell them apart and the filter starts a hold.
+Counted from the stick passing 5% on the far side, they were held as follows.
+
+| Stick | Hold | Not held | Median | Longest |
+|-------|------|----------|--------|---------|
+| Stock (left) | 25 ms | 10 of 33 | 5.0 ms | 12.3 ms |
+| TMR (right) | 65 ms | 16 of 41 | 3.8 ms | 10.1 ms |
+
+The steady push rule ends most of these holds. Right after centre, a slam and
+the spring's overshoot both shoot outward fast, and only the slam keeps going.
+Waiting 10 ms is about as short as that rule can be, since 8 ms already lets
+modelled bounces through. A slam then reaches the far side up to about 10 ms
+late, during a crossing that takes 15–25 ms anyway.
 
 ## How a release is detected
 
