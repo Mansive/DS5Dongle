@@ -15,8 +15,6 @@ constexpr int32_t ARM_R = radius(SNAPBACK_ARM_PERCENT);
 constexpr int32_t ENTER_R = radius(SNAPBACK_ENTER_PERCENT);
 constexpr int32_t ESCAPE_R = radius(SNAPBACK_ESCAPE_PERCENT);
 constexpr int32_t SETTLE_R = radius(SNAPBACK_SETTLE_PERCENT);
-constexpr int32_t SWING_GATE_R = radius(SNAPBACK_SWING_GATE_PERCENT);
-constexpr int32_t GROWTH_R = radius(SNAPBACK_GROWTH_PERCENT);
 constexpr int32_t PUSH_R = radius(SNAPBACK_PUSH_PERCENT);
 constexpr int32_t SIDEWAYS_R = radius(SNAPBACK_SIDEWAYS_PERCENT);
 constexpr int32_t ENTER_SQ = ENTER_R * ENTER_R;
@@ -68,21 +66,17 @@ bool back_at_centre(const SnapbackStick &stick, const int32_t dx, const int32_t 
     return a * a <= ENTER_SQ * arm_sq(stick);
 }
 
-void start_hold(SnapbackStick &stick, const int32_t dx, const int32_t dy, const int32_t r,
-                const uint32_t timestamp) {
+// True when the stick is SNAPBACK_SIDEWAYS_PERCENT or more off the line it was
+// pushed along. Called only below ESCAPE_R.
+bool sideways(const SnapbackStick &stick, const int32_t dx, const int32_t dy) {
+    const int32_t cross = dx * stick.arm_y - dy * stick.arm_x;
+    return cross * cross >= SIDEWAYS_SQ * arm_sq(stick);
+}
+
+void start_hold(SnapbackStick &stick, const int32_t r, const uint32_t timestamp) {
     stick.armed = false;
     stick.holding = true;
     stick.hold_from = timestamp;
-    // The swing the stick is coming back from is the push itself. When the
-    // spring has already carried it past centre, that swing is over.
-    stick.last_peak = stick.arm_peak;
-    if (r >= SWING_GATE_R && along(stick, dx, dy) < 0) {
-        stick.swing_side = -1;
-        stick.swing_peak = static_cast<uint8_t>(r);
-    } else {
-        stick.swing_side = 1;
-        stick.swing_peak = stick.arm_peak;
-    }
     stick.prev_r = static_cast<uint8_t>(r);
     stick.rise_from = timestamp;
     stick.settling = r < SETTLE_R;
@@ -109,22 +103,7 @@ bool __not_in_flash_func(keep_holding)(SnapbackStick &stick, const int32_t dx, c
     }
 
     // Sideways from the line the stick bounces along.
-    const int32_t cross = dx * stick.arm_y - dy * stick.arm_x;
-    if (cross * cross >= SIDEWAYS_SQ * arm_sq(stick)) return false;
-
-    // A swing bigger than the one before. Near centre the side is jitter, so
-    // only a clear deflection starts a new swing.
-    if (r >= SWING_GATE_R) {
-        const int8_t side = along(stick, dx, dy) < 0 ? -1 : 1;
-        if (side != stick.swing_side) {
-            stick.swing_side = side;
-            stick.last_peak = stick.swing_peak;
-            stick.swing_peak = static_cast<uint8_t>(r);
-        } else if (r > stick.swing_peak) {
-            stick.swing_peak = static_cast<uint8_t>(r);
-        }
-        if (r >= PUSH_R && r >= stick.last_peak + GROWTH_R) return false;
-    }
+    if (sideways(stick, dx, dy)) return false;
 
     // A deflection that keeps growing.
     if (r + RISE_NOISE < stick.prev_r) stick.rise_from = timestamp;
@@ -171,20 +150,25 @@ bool __not_in_flash_func(snapback_step)(SnapbackStick &stick, const uint8_t x, c
         stick.armed = false;
     }
 
+    if (stick.armed && timestamp - stick.armed_at > RELEASE_TICKS) {
+        stick.armed = false;
+    }
     if (r >= ARM_R) {
-        if (!stick.armed) stick.arm_peak = 0;
+        // Far past centre on the other side, straight after a push: the
+        // spring's overshoot, seen when reports stopped while it crossed
+        // centre. Only a push of SNAPBACK_ESCAPE_PERCENT counts as a new one.
+        if (stick.armed && r < ESCAPE_R && along(stick, dx, dy) < 0 && !sideways(stick, dx, dy)) {
+            start_hold(stick, r, timestamp);
+            return true;
+        }
         stick.armed = true;
         stick.armed_at = timestamp;
         stick.arm_x = static_cast<int16_t>(dx);
         stick.arm_y = static_cast<int16_t>(dy);
-        if (r > stick.arm_peak) stick.arm_peak = static_cast<uint8_t>(r);
         return false;
     }
-    if (stick.armed && timestamp - stick.armed_at > RELEASE_TICKS) {
-        stick.armed = false;
-    }
     if (stick.armed && back_at_centre(stick, dx, dy)) {
-        start_hold(stick, dx, dy, r, timestamp);
+        start_hold(stick, r, timestamp);
         return true;
     }
     return false;

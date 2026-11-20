@@ -85,6 +85,13 @@ All thresholds are fractions of full travel, measured from `0x80`. They are in
    sometimes stop for 15–25 ms, and when that happens during a release the
    stick comes back already bouncing. A recorded release like that got past
    the filter before this rule.
+
+   A report gap can also hide the return entirely, so the next report shows
+   the stick already 50% or more past centre on the other side. Straight after
+   a push, that is the spring's overshoot, so it also counts as a release.
+   Only a push of 90% or more, or one 35% or more to the side, counts as a new
+   push there. A full flick from one side to the other passes, since it
+   reaches 90%.
 3. **Holding.** The stick is reported at centre until one of these happens.
    - The hold time has passed since the release.
    - **Settled.** The stick has stayed within 3% of centre for 8 ms. A bounce
@@ -95,16 +102,15 @@ All thresholds are fractions of full travel, measured from `0x80`. They are in
      below that.
    - **Sideways.** The stick is 35% or more to the side of the line it was
      pushed along. Bounces stay on that line.
-   - **Bigger swing.** Each swing of a bounce is smaller than the one before.
-     A swing that reaches 25% and is at least 15% larger than the one before
-     is the player. The push itself counts as the first swing.
    - **Steady push.** The stick is at 25% or more and has not moved back
      towards centre for 10 ms. A bounce turns around within a few ms.
 4. When the hold ends the stick passes through again, and a new push of 50% or
    more arms it for the next release.
 
-For the swing rules, the stick counts as being on one side of centre only from
-4%, so jitter around centre never starts a new swing.
+An earlier version also ended the hold when a swing was larger than the one
+before. On a recorded TMR stick, report gaps hid the overshoot peak, so the
+next, smaller swing looked larger and the bounce leaked. That rule is gone.
+The steady push rule still catches a player who pushes during the hold.
 
 The host tests feed modelled releases through the filter, with the stock
 stick's 54% overshoot and the JS13's 72% overshoot and slower swing, sampled

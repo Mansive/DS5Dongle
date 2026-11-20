@@ -82,15 +82,33 @@ static void test_small_flick_is_not_held() {
     for (const auto &p : small) CHECK(!step(s, p, 30));
 }
 
+static void check_sequence(const Sample *samples, const bool *expect, int n, uint8_t hold = 30);
+
 static void test_hard_push_escapes() {
     // Let go, then flick hard the other way 8 ms later: that goes through.
     SnapbackStick s;
     const Sample flick[] = {{0, 1.0, 0}, {2, 0.4, 0}, {4, 0.1, 0}, {6, -0.5, 0}, {8, -1.0, 0}, {10, -1.0, 0}};
     const bool expect[] = {false, false, true, true, false, false};
     for (int i = 0; i < 6; i++) CHECK(step(s, flick[i], 30) == expect[i]);
-    // Letting go of that flick is filtered again.
-    CHECK(!step(s, {12, 0.6, 0}, 30));
+    // Letting go of that flick is filtered again, here from its 60% overshoot.
+    CHECK(step(s, {12, 0.6, 0}, 30));
     CHECK(step(s, {14, -0.05, 0}, 30));
+}
+
+static void test_overshoot_after_dropout() {
+    // Recorded right stick release (55 ms results, release 63): no reports for
+    // 14 ms around the release, and the first one after is 67% past centre.
+    // That is the overshoot, not a new push, so it is held.
+    const Sample s[] = {{-18.89, 1.0, 0}, {-13.85, 1.0, 0}, {0, -0.674, 0.01}, {16.37, 0.0, 0}, {20.14, 0.0, 0}};
+    const bool expect[] = {false, false, true, true, true};
+    check_sequence(s, expect, 5, 55);
+    // A full flick across goes through, and so does a 60% push to the side.
+    const Sample flick[] = {{0, 1.0, 0}, {2, -1.0, 0}, {4, -1.0, 0}};
+    const bool flick_expect[] = {false, false, false};
+    check_sequence(flick, flick_expect, 3, 55);
+    const Sample side[] = {{0, 1.0, 0}, {2, -0.3, 0.6}, {4, -0.3, 0.6}};
+    const bool side_expect[] = {false, false, false};
+    check_sequence(side, side_expect, 3, 55);
 }
 
 static void test_jump_past_centre() {
@@ -135,7 +153,7 @@ static void test_repeated_releases() {
 }
 
 // Feeds samples with hold 30 and checks which are held.
-static void check_sequence(const Sample *samples, const bool *expect, const int n, const uint8_t hold = 30) {
+static void check_sequence(const Sample *samples, const bool *expect, const int n, const uint8_t hold) {
     SnapbackStick s;
     for (int i = 0; i < n; i++) {
         const bool held = step(s, samples[i], hold);
@@ -167,11 +185,21 @@ static void test_sideways_push_escapes() {
     check_sequence(s, expect, 6);
 }
 
-static void test_bigger_swing_escapes() {
-    // Swings back to 48% after a 30% overshoot: a bounce only gets smaller.
-    const Sample s[] = {{0, 1.0, 0}, {2, 0.4, 0}, {4, 0.1, 0}, {6, -0.3, 0}, {8, 0.48, 0}, {10, 0.48, 0}};
-    const bool expect[] = {false, false, true, true, false, false};
-    check_sequence(s, expect, 6);
+static void test_slow_decaying_bounce_stays_held() {
+    // Recorded right TMR stick release (55 ms results, release 39), with the
+    // overshoot only caught at 25% because reports were missing around its
+    // peak. The 46% rebound after it is still the bounce and stays held.
+    const Sample s[] = {
+        {-3, 1.0, 0},       {0, 0.706, 0},      {1.26, 0.526, 0},   {3.78, 0.05, 0},   {7, -0.25, 0},
+        {11.33, 0.455, 0},  {20.15, 0.392, 0},  {21.4, 0.267, 0},   {23.92, -0.243, 0}, {26.44, -0.4, 0},
+        {27.7, -0.384, 0},  {30.22, -0.039, 0}, {31.48, 0.071, 0},  {33.99, 0.251, 0}, {36.51, 0.086, 0},
+    };
+    SnapbackStick st;
+    for (const auto &p : s) {
+        const bool held = step(st, p, 55);
+        if (held != (p.t >= 3)) std::printf("  t=%.2f held=%d\n", p.t, held);
+        CHECK(held == (p.t >= 3));
+    }
 }
 
 static void test_slow_push_escapes() {
@@ -306,7 +334,8 @@ int main() {
     test_repeated_releases();
     test_settle_ends_hold_early();
     test_sideways_push_escapes();
-    test_bigger_swing_escapes();
+    test_slow_decaying_bounce_stays_held();
+    test_overshoot_after_dropout();
     test_slow_push_escapes();
     test_modelled_bounces_stay_held();
     test_release_across_dropout();
