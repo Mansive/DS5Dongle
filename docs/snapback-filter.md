@@ -23,7 +23,7 @@ cannot make ends the hold at once.
 
 | Setting | Values | Default |
 |---------|--------|---------|
-| `snapback_left` | `0`–`60` ms the left stick is held at centre at most after a release, `0` off | `0` |
+| `snapback_left` | `0`–`80` ms the left stick is held at centre at most after a release, `0` off | `0` |
 | `snapback_right` | same for the right stick | `0` |
 
 ```sh
@@ -52,59 +52,81 @@ The setting is the longest hold. Since the hold ends once the stick settles,
 setting it a little above that figure costs little on releases that settle
 sooner.
 
-Replaying the recorded releases through the first version of the filter, which
-always held for the full time and had only the 90% escape, gave these results
-at a 10% deadzone. They have not been replayed through the current rules.
+### Replayed recordings
 
-| Stick | Hold | Releases caught | Bounces left past 10% |
-|-------|------|-----------------|-----------------------|
-| Stock | 19 ms | 50 of 50 | 0 |
-| JS13 | 35 ms | 50 of 50 | 0 |
-| JS13 | 25 ms | 50 of 50 | 21 |
+The current rules were replayed against snapback tester recordings made with
+the filter off, on a DualSense Edge with a stock left stick and a TMR right
+stick. Each stick was recorded through the dongle over Bluetooth and over USB.
+There were 64 full and diagonal releases and 50 partial releases (let go from
+35–85%) per stick and link. A bounce counts as left over when the stick leaves
+the deadzone again after first reaching centre while it is not held.
 
-Spacing the same recordings 4 ms apart, like a slower Bluetooth link, gave the
-same result except for one JS13 release that a finger slowed down. It bounced
-only 10%, and the filter rightly left it alone.
+| Stick | Hold | Left over past 3% | Left over past 5% |
+|-------|------|-------------------|-------------------|
+| Stock (left) | 25 ms | 0 of 228 | 0 of 228 |
+| TMR (right) | 55 ms | 6 of 228 | 0 of 228 |
+| TMR (right) | 60 ms | 1 of 228 | 0 of 228 |
+| TMR (right) | 65 ms | 0 of 228 | 0 of 228 |
+
+Partial releases were all caught, by both sticks at every hold above. The TMR
+stick's bounce is slower to die out. Its last swing past 3% came as late as
+64 ms after the release, against 25 ms for the stock stick.
 
 A longer hold costs nothing while the stick is resting. It only delays a
 deliberate move that starts within the hold and that none of the escape rules
-below recognise.
+below recognise. To check that, 123 deliberate moves across centre were
+recorded over Bluetooth. Each started from about 40% to full and stopped 3–85% past
+centre on the other side, with the thumb on the stick throughout. With a 65 ms
+hold, once the stick was more than 5% past centre the filter held it at most
+7.6 ms, and for 5 ms or less in most cases. Moves that stopped 10% or more past
+centre were held at most 6.3 ms.
 
 ## How a release is detected
 
 All thresholds are fractions of full travel, measured from `0x80`. They are in
 `src/snapback_filter.h`.
 
-1. **Armed.** The stick is at 50% or further. Its position is remembered.
+1. **Armed.** The stick is at 35% or further. Its position and the furthest
+   it reached are remembered. Let go from 35–50%, the TMR stick still
+   overshot by up to half that push, which is why the arm point is not higher.
 2. **Released.** Within 15 ms of last being armed, the stick's position along
    the remembered direction comes back to 15% or less. It does not have to land
    near centre. The spring often carries it straight past centre between two
-   reports. The spring covers this distance in 2–4 ms, so a slower return is
-   the player moving the stick and is not held. A gap of more than 6 ms
+   reports. From a full push the spring covers this distance in 1–6 ms, and
+   from a partial push usually within 10 ms, so a slower return is the player
+   moving the stick and is not held. A gap of more than 6 ms
    between reports does not count toward the 15 ms. Over Bluetooth, reports
    sometimes stop for 15–25 ms, and when that happens during a release the
    stick comes back already bouncing. A recorded release like that got past
    the filter before this rule.
 
    A report gap can also hide the return entirely, so the next report shows
-   the stick already 50% or more past centre on the other side. Straight after
+   the stick already 35% or more past centre on the other side. Straight after
    a push, that is the spring's overshoot, so it also counts as a release.
-   Only a push of 90% or more, or one 35% or more to the side, counts as a new
-   push there. A full flick from one side to the other passes, since it
-   reaches 90%.
+   Only a push past 80% of the one before, or one 35% or more to the side,
+   counts as a new push there. A full flick from one side to the other passes,
+   since it goes about as far as the push before.
 3. **Holding.** The stick is reported at centre until one of these happens.
    - The hold time has passed since the release.
    - **Settled.** The stick has stayed within 3% of centre for 8 ms. A bounce
      swings through that zone faster. The zone suits the low deadzones (about
      0–5%) used with TMR sticks. A stick that rests further than 3% off centre,
      such as a worn potentiometer stick, never settles and gets the full hold.
-   - **Hard push.** The stick is at 90% or more. Measured bounces stay well
-     below that.
+   - **Hard push.** The stick is past 80% of the push it was let go from. The
+     first overshoot measured stays below that, at most 53% of the push on the
+     stock stick and 76% on the TMR stick, so the margin on a TMR stick is
+     small.
    - **Sideways.** The stick is 35% or more to the side of the line it was
-     pushed along. Bounces stay on that line.
-   - **Steady push.** The stick is at 25% or more and has not moved back
-     towards centre for 10 ms. A bounce turns around within a few ms.
-4. When the hold ends the stick passes through again, and a new push of 50% or
+     pushed along. Bounces stay on that line. Diagonal releases drifted up to
+     16% to the side.
+   - **Steady push.** The stick is at 5% or more and has not moved back
+     towards centre for 10 ms. A bounce turns around within a few ms, while a
+     thumb that moves the stick across centre stops and stays there. A gap of
+     more than 6 ms between reports starts the 10 ms over, since the stick may
+     have bounced during it. This rule used to start at 25%, so a deliberate
+     move that stopped 10–25% past centre was held for most of the hold, up to
+     50 ms in the recordings.
+4. When the hold ends the stick passes through again, and a new push of 35% or
    more arms it for the next release.
 
 An earlier version also ended the hold when a swing was larger than the one
@@ -144,6 +166,5 @@ This builds `tests/snapback_filter_test.cpp` with `g++` against
 
 - Hardware test over Bluetooth with both sticks, in a game with a known
   deadzone.
-- Replay recorded releases (the snapback tester's JSON export) through the
-  current rules, to check the settle and escape thresholds against real
-  sticks, including bounces after a diagonal release.
+- Recordings from other sticks, to check the 80% hard push margin on TMR
+  sticks that overshoot more than this one.

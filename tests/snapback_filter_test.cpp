@@ -76,13 +76,46 @@ static void test_slow_return_is_not_held() {
 }
 
 static void test_small_flick_is_not_held() {
-    // Never reaches 50%: no release to filter.
+    // Never reaches 35%: no release to filter.
     SnapbackStick s;
-    const Sample small[] = {{0, 0.45, 0}, {2, 0.3, 0}, {4, 0.05, 0}, {6, -0.2, 0}, {8, 0.0, 0}};
+    const Sample small[] = {{0, 0.3, 0}, {2, 0.2, 0}, {4, 0.05, 0}, {6, -0.12, 0}, {8, 0.0, 0}};
     for (const auto &p : small) CHECK(!step(s, p, 30));
 }
 
 static void check_sequence(const Sample *samples, const bool *expect, int n, uint8_t hold = 30);
+
+static void test_partial_release_is_held() {
+    // Let go from 45%: the aftermarket stick still overshoots by a third of that.
+    SnapbackStick s;
+    const Sample partial[] = {{0, 0.45, 0}, {2, 0.25, 0}, {4, 0.05, 0}, {6, -0.15, 0}, {8, -0.1, 0}, {10, 0.02, 0}};
+    for (const auto &p : partial) CHECK(step(s, p, 30) == (p.t >= 4));
+}
+
+static void test_reversal_goes_through() {
+    // The thumb moves the stick across centre fast enough to look like a
+    // release, and stops 12% past it. Once it has stayed there for 10 ms, the
+    // hold ends.
+    SnapbackStick s;
+    const Sample across[] = {{0, 1.0, 0},    {2, 0.6, 0},    {4, 0.3, 0},    {6, 0.1, 0},    {8, -0.05, 0},
+                             {10, -0.1, 0},  {12, -0.12, 0}, {14, -0.12, 0}, {16, -0.12, 0}, {18, -0.12, 0},
+                             {20, -0.12, 0}};
+    for (const auto &p : across) {
+        const bool held = step(s, p, 55);
+        // Last drop at 8 ms, so the stick has stayed put long enough at 18 ms.
+        const bool expect = p.t >= 6 && p.t < 18;
+        if (held != expect) std::printf("  t=%.0f held=%d\n", p.t, held);
+        CHECK(held == expect);
+    }
+}
+
+static void test_rise_restarts_after_gap() {
+    // A gap in the reports while holding does not count as the stick staying
+    // put, since it may have bounced in between.
+    const Sample s[] = {{0, 1.0, 0},    {2, 0.5, 0},    {4, 0.1, 0},    {6, -0.1, 0},   {8, -0.2, 0},
+                        {28, -0.2, 0},  {30, -0.2, 0},  {34, -0.2, 0},  {38, -0.2, 0},  {40, -0.2, 0}};
+    const bool expect[] = {false, false, true, true, true, true, true, true, false, false};
+    check_sequence(s, expect, 10, 55);
+}
 
 static void test_hard_push_escapes() {
     // Let go, then flick hard the other way 8 ms later: that goes through.
@@ -203,7 +236,7 @@ static void test_slow_decaying_bounce_stays_held() {
 }
 
 static void test_slow_push_escapes() {
-    // Let go, then pushed the other way slowly: past 25% and still growing
+    // Let go, then pushed the other way slowly: past 5% and still growing
     // 10 ms after the release, so it goes through.
     const Sample s[] = {{0, 1.0, 0},   {2, 0.4, 0},   {4, 0.1, 0},   {6, -0.15, 0}, {8, -0.2, 0},
                         {10, -0.25, 0}, {12, -0.3, 0}, {14, -0.35, 0}, {16, -0.4, 0}};
@@ -238,9 +271,9 @@ static void test_release_across_dropout() {
     }
     // A stick that was already let go slowly before the gap stays unheld.
     SnapbackStick slow;
-    const Sample before[] = {{0, 1.0, 0}, {6, 0.45, 0}, {12, 0.35, 0}, {18, 0.3, 0}};
+    const Sample before[] = {{0, 1.0, 0}, {6, 0.6, 0}, {12, 0.34, 0}, {18, 0.3, 0}, {24, 0.25, 0}};
     for (const auto &p : before) CHECK(!step(slow, p, 55));
-    CHECK(!step(slow, {45, -0.3, 0}, 55));
+    CHECK(!step(slow, {51, -0.3, 0}, 55));
 }
 
 // A spring release modelled as a damped swing: back at centre after
@@ -326,6 +359,9 @@ int main() {
     test_short_hold_ends_early();
     test_slow_return_is_not_held();
     test_small_flick_is_not_held();
+    test_partial_release_is_held();
+    test_reversal_goes_through();
+    test_rise_restarts_after_gap();
     test_hard_push_escapes();
     test_jump_past_centre();
     test_sideways_move_is_not_held();

@@ -11,22 +11,25 @@ struct USBGetStateData;
 // game never sees the bounce. Movement that does not look like a bounce ends
 // the hold at once.
 
-// A release starts from at least this deflection (percent of full travel)...
-constexpr uint8_t SNAPBACK_ARM_PERCENT = 50;
+// A release starts from at least this deflection (percent of full travel). A
+// stick let go from a third of the way out still overshoots by up to half that
+// push on aftermarket sticks...
+constexpr uint8_t SNAPBACK_ARM_PERCENT = 35;
 // ...and must come back to within this distance of centre, measured along the
 // direction it was pushed (the spring can carry it straight past centre between
 // two reports, so landing near centre is not required)...
 constexpr uint8_t SNAPBACK_ENTER_PERCENT = 15;
 // ...within this time of last being at SNAPBACK_ARM_PERCENT. The spring covers
-// that distance in 2-4 ms, so this leaves room for a report every 4-8 ms. A
+// that distance in a few ms, so this leaves room for a report every 4-8 ms. A
 // slower return is the player moving the stick, not the spring.
 constexpr uint32_t SNAPBACK_RELEASE_MS = 15;
 // A gap of more than this between reports (a dropped link) does not count
 // toward SNAPBACK_RELEASE_MS, since the release may have happened inside it.
 constexpr uint32_t SNAPBACK_GAP_MS = 6;
-// While holding, a push this far still goes through at once. Bounces measured
-// on stock and aftermarket sticks stay well below it.
-constexpr uint8_t SNAPBACK_ESCAPE_PERCENT = 90;
+// While holding, a push past this percent of the release's push still goes
+// through at once. The first overshoot measured on stock and aftermarket sticks
+// stays below it.
+constexpr uint8_t SNAPBACK_ESCAPE_PERCENT = 80;
 // The hold ends early once the stick has stayed within SNAPBACK_SETTLE_PERCENT
 // of centre for SNAPBACK_SETTLE_MS. A bounce swings through that zone faster
 // than that. The zone is small enough for the low deadzones used with TMR
@@ -35,15 +38,16 @@ constexpr uint8_t SNAPBACK_ESCAPE_PERCENT = 90;
 constexpr uint8_t SNAPBACK_SETTLE_PERCENT = 3;
 constexpr uint32_t SNAPBACK_SETTLE_MS = 8;
 // While holding, these also end the hold, since a spring bounce does neither.
-// A deflection of at least SNAPBACK_PUSH_PERCENT that keeps growing for
-// SNAPBACK_RISE_MS (a bounce turns around within a few ms)...
+// A deflection of at least SNAPBACK_PUSH_PERCENT that grows or stays put for
+// SNAPBACK_RISE_MS (a bounce turns around within a few ms, while a thumb that
+// moves the stick across centre stops and stays there)...
 constexpr uint32_t SNAPBACK_RISE_MS = 10;
-constexpr uint8_t SNAPBACK_PUSH_PERCENT = 25;
+constexpr uint8_t SNAPBACK_PUSH_PERCENT = 5;
 // ...and a move this far sideways from the direction the stick was pushed
 // (bounces stay along that line).
 constexpr uint8_t SNAPBACK_SIDEWAYS_PERCENT = 35;
 // Longest hold the config accepts, in ms (0 turns the filter off).
-constexpr uint8_t SNAPBACK_HOLD_MAX_MS = 60;
+constexpr uint8_t SNAPBACK_HOLD_MAX_MS = 80;
 // SensorTimestamp ticks per millisecond (the counter runs in 1/3 us units).
 constexpr uint32_t SNAPBACK_TICKS_PER_MS = 3000;
 
@@ -54,6 +58,7 @@ struct SnapbackStick {
     uint32_t armed_at = 0;    // Timestamp it was last there
     int16_t arm_x = 0;        // Where it was then, relative to centre
     int16_t arm_y = 0;
+    uint8_t peak_r = 0;       // Largest deflection of that push
     bool holding = false;     // Reporting the stick at centre
     uint32_t hold_from = 0;   // Timestamp the hold started
     // While holding:

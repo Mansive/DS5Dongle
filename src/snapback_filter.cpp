@@ -13,7 +13,6 @@ constexpr int32_t radius(const uint8_t percent) {
 
 constexpr int32_t ARM_R = radius(SNAPBACK_ARM_PERCENT);
 constexpr int32_t ENTER_R = radius(SNAPBACK_ENTER_PERCENT);
-constexpr int32_t ESCAPE_R = radius(SNAPBACK_ESCAPE_PERCENT);
 constexpr int32_t SETTLE_R = radius(SNAPBACK_SETTLE_PERCENT);
 constexpr int32_t PUSH_R = radius(SNAPBACK_PUSH_PERCENT);
 constexpr int32_t SIDEWAYS_R = radius(SNAPBACK_SIDEWAYS_PERCENT);
@@ -27,9 +26,10 @@ constexpr uint32_t SETTLE_TICKS = SNAPBACK_SETTLE_MS * SNAPBACK_TICKS_PER_MS;
 constexpr uint32_t RISE_TICKS = SNAPBACK_RISE_MS * SNAPBACK_TICKS_PER_MS;
 
 // All products below stay in 32 bits: deflections are at most 181 and a held
-// stick is under ESCAPE_R. The RP2040 has no 64-bit multiply instruction, and
-// its library routine runs from flash.
-static_assert(ARM_R < 64, "back_at_centre bounds assume a 50% arm radius");
+// stick is under SNAPBACK_ESCAPE_PERCENT of that. The RP2040 has no 64-bit
+// multiply instruction, and its library routine runs from flash.
+static_assert(ARM_R < 64, "back_at_centre bounds assume at most a 50% arm radius");
+static_assert(SNAPBACK_ESCAPE_PERCENT <= 100, "sideways bounds assume a held stick is under its push");
 
 // Integer square root of a squared deflection (at most 2 * 128 * 128).
 uint32_t __not_in_flash_func(deflection)(uint32_t sq) {
@@ -66,8 +66,14 @@ bool back_at_centre(const SnapbackStick &stick, const int32_t dx, const int32_t 
     return a * a <= ENTER_SQ * arm_sq(stick);
 }
 
+// True when the stick is past SNAPBACK_ESCAPE_PERCENT of the push it was let go
+// from, which makes it a new push rather than a bounce.
+bool escaped(const SnapbackStick &stick, const int32_t r) {
+    return r * 100 > stick.peak_r * SNAPBACK_ESCAPE_PERCENT;
+}
+
 // True when the stick is SNAPBACK_SIDEWAYS_PERCENT or more off the line it was
-// pushed along. Called only below ESCAPE_R.
+// pushed along. Called only when not escaped.
 bool sideways(const SnapbackStick &stick, const int32_t dx, const int32_t dy) {
     const int32_t cross = dx * stick.arm_y - dy * stick.arm_x;
     return cross * cross >= SIDEWAYS_SQ * arm_sq(stick);
@@ -85,10 +91,10 @@ void start_hold(SnapbackStick &stick, const int32_t r, const uint32_t timestamp)
 
 // One report while holding. False when the hold ends, so the report passes.
 bool __not_in_flash_func(keep_holding)(SnapbackStick &stick, const int32_t dx, const int32_t dy, const int32_t r,
-                                       const uint32_t timestamp, const uint8_t hold_ms) {
+                                       const uint32_t timestamp, const bool after_gap, const uint8_t hold_ms) {
     // Unsigned subtraction keeps working across the timestamp wrap.
     if (timestamp - stick.hold_from >= hold_ms * SNAPBACK_TICKS_PER_MS) return false;
-    if (r >= ESCAPE_R) return false;
+    if (escaped(stick, r)) return false;
 
     // Settled near centre.
     if (r < SETTLE_R) {
@@ -105,8 +111,9 @@ bool __not_in_flash_func(keep_holding)(SnapbackStick &stick, const int32_t dx, c
     // Sideways from the line the stick bounces along.
     if (sideways(stick, dx, dy)) return false;
 
-    // A deflection that keeps growing.
-    if (r + RISE_NOISE < stick.prev_r) stick.rise_from = timestamp;
+    // A deflection that grows or stays put. The stick may have bounced during
+    // a gap in the reports, so the time starts over after one.
+    if (after_gap || r + RISE_NOISE < stick.prev_r) stick.rise_from = timestamp;
     stick.prev_r = static_cast<uint8_t>(r);
     if (r >= PUSH_R && timestamp - stick.rise_from >= RISE_TICKS) return false;
 
@@ -145,7 +152,7 @@ bool __not_in_flash_func(snapback_step)(SnapbackStick &stick, const uint8_t x, c
     if (stick.armed && since_last > GAP_TICKS) stick.armed_at += since_last;
 
     if (stick.holding) {
-        if (keep_holding(stick, dx, dy, r, timestamp, hold_ms)) return true;
+        if (keep_holding(stick, dx, dy, r, timestamp, since_last > GAP_TICKS, hold_ms)) return true;
         stick.holding = false;
         stick.armed = false;
     }
@@ -156,11 +163,13 @@ bool __not_in_flash_func(snapback_step)(SnapbackStick &stick, const uint8_t x, c
     if (r >= ARM_R) {
         // Far past centre on the other side, straight after a push: the
         // spring's overshoot, seen when reports stopped while it crossed
-        // centre. Only a push of SNAPBACK_ESCAPE_PERCENT counts as a new one.
-        if (stick.armed && r < ESCAPE_R && along(stick, dx, dy) < 0 && !sideways(stick, dx, dy)) {
+        // centre. A push past SNAPBACK_ESCAPE_PERCENT of the last one counts
+        // as a new one.
+        if (stick.armed && !escaped(stick, r) && along(stick, dx, dy) < 0 && !sideways(stick, dx, dy)) {
             start_hold(stick, r, timestamp);
             return true;
         }
+        if (!stick.armed || r > stick.peak_r) stick.peak_r = static_cast<uint8_t>(r);
         stick.armed = true;
         stick.armed_at = timestamp;
         stick.arm_x = static_cast<int16_t>(dx);

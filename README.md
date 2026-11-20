@@ -326,7 +326,7 @@ When a stick is flicked and let go, its spring throws it past centre and it boun
 tens of milliseconds. Games can read that bounce as a flick the other way. The snapback filter
 spots a release and reports the stick at centre until the bounce settles, so the game never
 sees it. Each stick has its own longest hold time in milliseconds, from `0` (off, the default)
-to `60`.
+to `80`.
 
 ```sh
 python tools/config_tool.py set snapback_left=20 snapback_right=36
@@ -334,8 +334,8 @@ python tools/config_tool.py set snapback_left=20 snapback_right=36
 
 Use the **Filter hold needed** figure from the [snapback tester](#snapback-tester) for each
 stick, with the tester's deadzone set to the game's. The hold ends sooner once the stick
-settles, and a hard push, a sideways move or a push that keeps growing goes through at once. A
-stick brought back to centre by hand is not held. In the web
+settles, and a hard push, a sideways move or a stick that stays put off centre goes through
+within about 10 ms. A stick brought back to centre by hand is not held. In the web
 config, the settings are in the **Snapback filter** section of the General page. Details are
 in [docs/snapback-filter.md](docs/snapback-filter.md).
 
