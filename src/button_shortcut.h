@@ -56,6 +56,7 @@ void button_shortcut_reset();
 void button_shortcut_task();
 void button_shortcut_start_learning();
 void trigger_host_sleep();
+bool host_sleep_in_progress();
 #else
 // No keyboard/consumer HID interface to fire into: keep the call sites clean
 // instead of sprinkling #ifdef through main.cpp and wake.cpp.
@@ -64,4 +65,5 @@ static inline void button_shortcut_reset() {}
 static inline void button_shortcut_task() {}
 static inline void button_shortcut_start_learning() {}
 static inline void trigger_host_sleep() {}
+static inline bool host_sleep_in_progress() { return false; }
 #endif

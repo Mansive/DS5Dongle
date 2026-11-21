@@ -104,9 +104,9 @@ class TouchpadDescriptorTests(unittest.TestCase):
         body = extract(text, 'uint8_t const desc_hid_report_consumer[] = {', '};')
         body = re.sub(r'//[^\n]*', '', body.split('{', 1)[1].rsplit('}', 1)[0])
         size = len([item for item in body.split(',') if item.strip()])  # one byte per item
-        self.assertEqual(size, 110)
-        self.assertIn('0x6E, 0x00, // wDescriptorLength: 110', text)
-        self.assertIn('sizeof(desc_hid_report_consumer) == 110', text)
+        self.assertEqual(size, 79)
+        self.assertIn('0x4F, 0x00, // wDescriptorLength: 79', text)
+        self.assertIn('sizeof(desc_hid_report_consumer) == 79', text)
 
 
 class TouchpadFirmwareTests(unittest.TestCase):

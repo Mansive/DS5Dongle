@@ -57,16 +57,19 @@ Two-finger scrolling is not implemented.
 ## USB
 
 - Mouse reports are **Report ID 3** on the consumer-control HID interface
-  (interface instance 2, endpoint `0x88`), next to the media keys (ID 1) and
-  system control (ID 2). There is no extra USB interface.
+  (interface instance 2, endpoint `0x88`), next to the media keys (ID 1).
+  There is no extra USB interface. ID 2 (system control) is no longer on this
+  interface. Sleep on dock now sends it from a separate keyboard-only
+  enumeration.
 - Report layout: 5 button bits plus 3 padding bits, then X and Y as signed
   16-bit relative values (logical range −32767 to 32767). The report is 5
   bytes after the ID.
 - That interface now polls every **1 ms** instead of 10 ms, so the cursor
   moves smoothly.
-- The keyboard and consumer interfaces are only enumerated when something
-  needs them: `enable_wake`, `enable_keyboard`, `sleep_on_dock`, a non-zero
-  `touchpad_mouse`, or a remap (base or layer) that targets a mouse button.
+- The consumer interface is only enumerated when something needs it:
+  `enable_keyboard`, a non-zero `touchpad_mouse`, or a remap (base or layer)
+  that targets a mouse button. The keyboard interface comes with it, and also
+  with `enable_wake` alone.
 - **Reconnect USB** (or replug) after turning the touchpad mouse on or off,
   and after saving the first mouse-button remap. The interface is only added
   or removed on re-enumeration. The web UI shows a reminder for both cases.

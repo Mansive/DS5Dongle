@@ -46,6 +46,7 @@ constexpr absolute_time_t nil_time = 0;
 inline uint64_t now = 0;
 inline auto make_timeout_time_ms(uint32_t ms) { return now + ms; }
 inline bool time_reached(absolute_time_t t) { return now >= t; }
+inline bool is_nil_time(absolute_time_t t) { return t == nil_time; }
 constexpr uint8_t Disable = 27, DPadNorthWest = 7;
 struct USBGetStateData { uint32_t buttons = 0; };
 inline bool button_is_pressed(const USBGetStateData& s, uint8_t b) {
@@ -55,8 +56,13 @@ struct Button { ButtonShortcut shortcuts[BUTTON_SHORTCUT_COUNT]{}; };
 inline Button config;
 inline Button& get_button() { return config; }
 inline bool bt_disconnect() { return true; }
+inline bool bt_is_connected() { return true; }
 inline void touchpad_mouse_toggle() {}
-inline bool usb_keyboard_only = false, usb_reconfiguring = false;
+struct Config { uint8_t enable_wake = 0; };
+inline Config& get_config() { static Config c; return c; }
+inline bool usb_keyboard_only = false, usb_reconfiguring = false, usb_sleep_mode = false;
+inline void usb_reconnect_sleep() { usb_sleep_mode = true; usb_keyboard_only = true; }
+inline void tud_disconnect() {}
 inline bool ready = true, accept = true, mounted = true, suspended = false;
 inline bool tud_mounted() { return mounted; }
 inline bool tud_suspended() { return suspended; }
@@ -72,9 +78,11 @@ inline bool tud_hid_n_keyboard_report(uint8_t, uint8_t, uint8_t m, const uint8_t
     return true;
 }
 inline uint16_t consumer_usage = 0;
-inline bool tud_hid_n_report(uint8_t, uint8_t, const void* data, uint16_t) {
+inline bool tud_hid_n_report(uint8_t, uint8_t, const void* data, uint16_t len) {
     if (!accept) return false;
-    memcpy(&consumer_usage, data, sizeof(consumer_usage)); return true;
+    consumer_usage = 0;
+    memcpy(&consumer_usage, data, len < sizeof(consumer_usage) ? len : sizeof(consumer_usage));
+    return true;
 }
 ''')
             shutil.copyfile(ROOT / 'tests/hold_state_test.cpp', tmp / 'test.cpp')

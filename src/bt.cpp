@@ -25,6 +25,7 @@
 #include "fake_ds5.h"
 #include "wake.h"
 #include "usb.h"
+#include "button_shortcut.h"
 #include "pico/util/queue.h"
 #include "pico/time.h"
 #include "pico/platform.h"
@@ -640,7 +641,7 @@ static void __not_in_flash_func(hci_packet_handler)(uint8_t packet_type, uint16_
             // wake is on (stay on the bus so a returning controller can signal a host wake) or
             // while the host is suspended -- hiding then re-showing re-enumerates, and a USB
             // re-connect wakes a sleeping host. Defer the hide until the host is awake.
-            if (!get_config().enable_wake && !tud_suspended()) {
+            if (!get_config().enable_wake && !tud_suspended() && !host_sleep_in_progress()) {
                 tud_disconnect();
             }
 #endif
@@ -659,7 +660,7 @@ static void __not_in_flash_func(hci_packet_handler)(uint8_t packet_type, uint16_
             touchpad_mouse_reset();
             snapback_filter_reset();
 #if !ENABLE_SERIAL
-            if (get_config().enable_wake && !tud_suspended()) {
+            if (get_config().enable_wake && !tud_suspended() && !host_sleep_in_progress()) {
                 usb_reconnect(true);
             }
 #endif
@@ -738,7 +739,9 @@ static void __not_in_flash_func(l2cap_packet_handler)(uint8_t packet_type, uint1
                         is_dse = false;
                     }
 #if !ENABLE_SERIAL
-                    usb_reconnect(false);
+                    if (!wake_defer_usb_reconnect()) {
+                        usb_reconnect(false);
+                    }
 #endif
                 }
             }
