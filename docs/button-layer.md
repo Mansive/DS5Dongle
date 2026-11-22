@@ -1,9 +1,9 @@
 # Button layers (modifier remap)
 
 Status: implemented in firmware, `tools/config_tool.py`, and the web UI
-(`ds5dongle-config-web`, branch `feat/button-layer`). The firmware builds and
-the host tests pass. It has **not** been tested on hardware yet. See
-[Open items](#open-items).
+(`ds5dongle-config-web`). The firmware builds and the host tests pass. It has
+been tested on hardware with a DualSense Edge over Bluetooth, including DS5
+emulation mode. See [Hardware testing](#hardware-testing).
 
 ## What it does
 
@@ -144,7 +144,7 @@ python tools/config_tool.py layer --reset                                   # ev
 | 5 | Held layer buttons match no layer | Base mapping |
 | 6 | Layer entry left unmapped | Falls back to base, not to another layer |
 | 7 | Remap applied repeatedly to one report | Idempotent; latch is derived from state |
-| 8 | Stale state after disconnect | Latches reset on disconnect. **Open:** check what report `main.cpp` sends after a disconnect |
+| 8 | Stale state after disconnect | Latches reset on disconnect. On hardware, no layer or held button stays stuck |
 | 9 | Layer button pressed alone | Hidden; tap-through out of scope |
 | 10 | Base table remaps a layer button | Ignored; UI warns |
 | 11 | Another button mapped *to* a layer button | Layer buttons are read from physical state only |
@@ -157,9 +157,9 @@ python tools/config_tool.py layer --reset                                   # ev
 | 18 | Swaps inside a layer | Two-phase clear-then-fill, as in base |
 | 19 | L2/R2 | Digital bit only; UI hint in layer tabs |
 | 20 | Edge Fn combos | Fn allowed as a hold button, with a warning |
-| 21 | Edge onboard profile reassigns paddles | **Open:** hardware check |
+| 21 | Edge onboard profile reassigns paddles | The controller then reports the assigned button, so the paddle no longer activates a layer. Leave layer paddles unassigned in the onboard profile |
 | 22 | Regular DualSense | Paddles not offered; other buttons can be hold buttons |
-| 23 | DS5 emulation with an Edge | Should work; **open:** hardware check |
+| 23 | DS5 emulation with an Edge | Paddle layers work |
 | 24 | Overlap with Shortcuts | Not flagged in the UI. Both fire, because shortcuts read physical state |
 | 25 | Flash up/downgrade | Unknown format byte reads as "all layers off"; no version bump |
 
@@ -170,6 +170,10 @@ python tools/config_tool.py layer --reset                                   # ev
   manually instead.
 - The base remap's `resolvePhysicalButton` (used by capture) does not account
   for layers.
+- A paddle that the Edge's onboard profile assigns to another button cannot be
+  a layer button. The controller reports the assigned button instead, for
+  example Cross for the left paddle. Leave layer paddles unassigned in the
+  onboard profile.
 
 ## Tests
 
@@ -190,10 +194,16 @@ python tools/config_tool.py layer --reset                                   # ev
   - a save writing `0xFC`, then `0xFD`, then the save-to-flash command, with
     the expected hold bitmasks
 
+## Hardware testing
+
+Tested on a DualSense Edge over Bluetooth:
+
+- Paddle layers work with an onboard profile that leaves the paddles
+  unassigned. A profile that assigns a paddle to another button stops that
+  paddle from activating layers, and switching back restores it (case 21).
+- Paddle layers work in DS5 emulation mode (case 23).
+- After a disconnect, no layer or held button stays stuck (case 8).
+
 ## Open items
 
-- Flash the firmware and test on hardware:
-  - Edge paddles over BT with the default profile, alone and together
-  - DS5 emulation mode
-  - the report sent after a disconnect
 - Optional: flag Shortcut triggers that overlap with layer mappings.
