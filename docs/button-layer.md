@@ -210,10 +210,11 @@ python tools/config_tool.py layer --reset                                   # ev
   or corrupt page 1.
 - Web UI: `bun test` (`tests/button-layer.test.ts`: hold bitmask encoding,
   encode/decode for `0xFC` and `0xFD`, normalization, support detection,
-  `0xFC`-then-`0xFD` write order, building a two-button set past a duplicate,
-  draft entries surviving a mistaken hold pick), `tests/remap-page.test.tsx`
-  (duplicate warning, tab marks and disabled Save in every language) and
-  `bun run build`. The UI was also driven in a browser against a simulated
+  write order under the firmware's per-report validation, building a
+  two-button set past a duplicate, draft entries surviving a mistaken hold
+  pick), `tests/remap-page.test.tsx` (duplicate warning, tab marks and
+  disabled Save), `tests/locales.test.ts` (every locale has the English keys
+  and placeholders) and `bun run build`. The UI was also driven in a browser against a simulated
   device. That check confirmed:
   - the Base / Layer 1 / Layer 2 / Layer 3 tabs
   - building LeftPaddle + RightPaddle on layer 3 next to single-paddle layers
