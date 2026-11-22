@@ -41,8 +41,9 @@ emit keyboard and media keys.
   the base mapping. An entry left at identity falls back to the **base**
   mapping, never to another layer.
 - **No duplicates.** Two layers cannot have the same hold set. The firmware
-  keeps the set on the earlier layer and turns the later one off; the tool
-  and the web UI refuse such a set.
+  keeps the set on the earlier layer and turns the later one off. The tool
+  refuses such a set. The web UI allows it while a set is being built, and
+  refuses to save it.
 - **Per-button latch.** When a button is pressed, the firmware stores which
   layer was active at that moment (1–3, or 0 for base). The button keeps using
   that table until it is released, whatever the layer buttons do meanwhile. A
@@ -128,8 +129,13 @@ python tools/config_tool.py layer --reset                                   # ev
 - Each layer tab has one **Hold button N** dropdown per hold button, plus an
   empty one (**None**) to add another; choosing None removes a button. Paddles
   and Fn are offered in the DualSense Edge view; a hold button not offered in
-  the current view is still shown. A choice that would give this layer another
-  layer's hold set is disabled and labelled "(used by layer N)".
+  the current view is still shown. Every choice is allowed, because a set
+  such as LeftPaddle + RightPaddle passes through LeftPaddle alone while it
+  is built. While two layers share a hold set, the page names them, marks
+  their tabs with a warning icon, and disables Save.
+- Draft edits keep every table entry. A hold button's entries are shown and
+  saved as identity, but come back if it stops being a hold button before
+  the save.
 - Layer tabs add:
   - this layer's hold buttons outlined and lightly filled on the controller artwork
   - "Same as base" labels on entries that inherit the base mapping
@@ -158,7 +164,7 @@ python tools/config_tool.py layer --reset                                   # ev
 | 10 | Base table remaps a layer button | Ignored; UI warns |
 | 11 | Another button mapped *to* a layer button | Layer buttons are read from physical state only |
 | 12 | Layer entry for a layer button | Forced to identity in all tables (firmware, tool, UI) |
-| 13 | Two layers with the same hold set | Firmware clears the later one; tool and UI refuse it |
+| 13 | Two layers with the same hold set | Firmware clears the later one. The tool refuses it. The UI allows it while editing and blocks Save |
 | 14 | Common button (e.g. L1) as a hold button | Allowed, but it is hidden from the game everywhere |
 | 15 | Two directions at once | Combine into a diagonal |
 | 16 | Opposite directions | Cancel to neutral |
@@ -200,10 +206,16 @@ python tools/config_tool.py layer --reset                                   # ev
   or corrupt page 1.
 - Web UI: `bun test` (`tests/button-layer.test.ts`: hold bitmask encoding,
   encode/decode for `0xFC` and `0xFD`, normalization, support detection,
-  `0xFC`-then-`0xFD` write order) and `bun run build`. The UI was also driven
-  in a browser against a simulated device. That check confirmed:
+  `0xFC`-then-`0xFD` write order, building a two-button set past a duplicate,
+  draft entries surviving a mistaken hold pick), `tests/remap-page.test.tsx`
+  (duplicate warning, tab marks and disabled Save in every language) and
+  `bun run build`. The UI was also driven in a browser against a simulated
+  device. That check confirmed:
   - the Base / Layer 1 / Layer 2 / Layer 3 tabs
-  - a dropdown choice that would duplicate another layer's set being disabled
+  - building LeftPaddle + RightPaddle on layer 3 next to single-paddle layers
+    1 and 2, with the warning and disabled Save at the LeftPaddle-only step
+  - picking Cross as a hold button and removing it again keeping layer 2's
+    Cross mapping
   - a save writing `0xFC`, then `0xFD`, then the save-to-flash command, with
     the expected hold bitmasks
 
