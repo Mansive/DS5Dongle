@@ -88,7 +88,8 @@ emit keyboard and media keys.
 - Validation (`button_layer_valid`):
   - Hold bits past RightPaddle are cleared.
   - A hold set equal to an earlier layer's is cleared.
-  - Entries above `Disable` become identity in every table.
+  - Entries past the last remap target (`MouseForward`, 32) become identity
+    in every table. `Disable` and the mouse targets 28–32 are kept.
   - Every layer button is forced to identity in every table.
 
 ## Tools
