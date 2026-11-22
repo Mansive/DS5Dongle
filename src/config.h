@@ -68,14 +68,19 @@ struct __attribute__((packed)) Config {
 struct __attribute__((packed)) Button {
     uint8_t button_remap[BUTTON_REMAP_COUNT]; // orig_btn:target_btn
     ButtonShortcut shortcuts[BUTTON_SHORTCUT_COUNT];
-    // Appended after shortcuts: flash saved by older firmware pads this with
-    // 0xFF, which fails the format check and resets the layers to off.
-    ButtonLayers layers;
 };
 
 struct __attribute__((packed)) ConfigStorage {
     Config config;
     Button button;
+};
+
+// Fork-only settings, on the flash page after ConfigStorage. ConfigStorage stays
+// identical to upstream, so upstream can grow it without moving these.
+struct __attribute__((packed)) ForkStorage {
+    uint32_t magic;
+    uint32_t crc32; // crc32 of everything after this field, checked on load
+    ButtonLayers layers;
 };
 
 static_assert(offsetof(ConfigStorage, button) == CONFIG_STORAGE_SIZE);
@@ -91,6 +96,7 @@ void config_load();
 bool config_save();
 Config_body& get_config();
 Button& get_button();
+ButtonLayers& get_button_layers();
 void set_config(const uint8_t *new_config, const uint16_t len);
 void set_button_remap(const uint8_t *new_remap, uint16_t len);
 void set_shortcut(const uint8_t *new_shortcuts, uint16_t len);

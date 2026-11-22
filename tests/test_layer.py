@@ -131,12 +131,16 @@ class LayerFirmwareTests(unittest.TestCase):
 #include "button_remap.h"
 struct Button {
     uint8_t button_remap[BUTTON_REMAP_COUNT];
-    ButtonLayers layers;
-    uint8_t guard = 0x5A; // detects writes past the last layer
 };
 struct Storage { Button button; };
 inline Storage storage;
 inline Button& get_button() { return storage.button; }
+struct ForkStorage {
+    ButtonLayers layers;
+    uint8_t guard = 0x5A; // detects writes past the last layer
+};
+inline ForkStorage fork_storage;
+inline ButtonLayers& get_button_layers() { return fork_storage.layers; }
 constexpr uint16_t BUTTON_LAYER_REPORT1_SIZE = 2 * sizeof(ButtonLayer);
 constexpr uint16_t BUTTON_LAYER_REPORT2_SIZE = sizeof(ButtonLayer);
 void button_layer_valid();
@@ -153,6 +157,60 @@ void button_layer_valid();
                             str(tmp / 'button_remap.cpp'), str(tmp / 'button_utils.cpp'),
                             str(tmp / 'config_layer.cpp'), str(tmp / 'test.cpp'),
                             '-o', str(exe)], check=True)
+            result = subprocess.run([str(exe)], capture_output=True, text=True)
+            print(result.stdout, end='')
+            self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+
+
+class ForkStorageFirmwareTests(unittest.TestCase):
+    def test_load_and_migration(self):
+        config = (ROOT / 'src/config.cpp').read_text(encoding='utf-8')
+        config_h = (ROOT / 'src/config.h').read_text(encoding='utf-8')
+        with tempfile.TemporaryDirectory() as directory:
+            tmp = Path(directory)
+            shutil.copyfile(ROOT / 'src/button_remap.h', tmp / 'button_remap.h')
+            # Flash is a host array. Config only needs the real header layout
+            # (magic, crc32, size, body), and any crc32 works since the test
+            # builds the old crc32 with the same function.
+            stubs = '''#include <cstdint>
+#include <cstddef>
+#include <cstdio>
+#include <cstring>
+#include "button_remap.h"
+constexpr uint32_t FLASH_PAGE_SIZE = 256;
+constexpr uint32_t FLASH_SECTOR_SIZE = 4096;
+alignas(4) static uint8_t flash[FLASH_SECTOR_SIZE];
+#define XIP_BASE (reinterpret_cast<uintptr_t>(flash))
+constexpr uint32_t CONFIG_FLASH_OFFSET = 0;
+struct __attribute__((packed)) Config {
+    uint32_t magic;
+    uint32_t crc32;
+    uint16_t size;
+    uint8_t body[54];
+};
+static_assert(sizeof(Config) == 64);
+static uint32_t crc32(const uint8_t *data, size_t size) {
+    uint32_t hash = 2166136261u;
+    for (size_t i = 0; i < size; i++) hash = (hash ^ data[i]) * 16777619u;
+    return hash;
+}
+'''
+            code = '\n'.join([
+                stubs,
+                extract(config, 'constexpr uint32_t CONFIG_MAGIC', ';'),
+                extract(config_h, 'struct __attribute__((packed)) ForkStorage {', '};'),
+                extract(config, 'constexpr uint32_t FORK_STORAGE_MAGIC', 'static ForkStorage fork_storage{};'),
+                extract_function(config, 'static uint32_t calc_fork_crc('),
+                extract_function(config, 'static const ForkStorage *get_fork_xip_addr('),
+                extract(config, 'constexpr uint32_t LEGACY_LAYERS_OFFSET', 'static_assert(LEGACY_STORAGE_SIZE == 249);'),
+                extract_function(config, 'static bool load_legacy_layers('),
+                extract_function(config, 'static void fork_storage_load('),
+                (ROOT / 'tests/fork_storage_test.cpp').read_text(encoding='utf-8'),
+            ])
+            (tmp / 'test.cpp').write_text(code, encoding='utf-8')
+            exe = tmp / 'test.exe'
+            subprocess.run(['g++', '-std=c++17', '-Wall', '-Wextra', '-Werror', '-I', str(tmp),
+                            str(tmp / 'test.cpp'), '-o', str(exe)], check=True)
             result = subprocess.run([str(exe)], capture_output=True, text=True)
             print(result.stdout, end='')
             self.assertEqual(result.returncode, 0, result.stdout + result.stderr)

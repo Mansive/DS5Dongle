@@ -26,9 +26,16 @@ static ConfigStorage storage{};
 static Config &config = storage.config;
 bool is_dse = false;
 
+// Fork-only settings live on the second page of the same sector, so one erase
+// still covers a save.
+constexpr uint32_t FORK_STORAGE_MAGIC = 0x6B726F46; // "Fork"
+constexpr uint32_t FORK_FLASH_OFFSET = CONFIG_FLASH_OFFSET + FLASH_PAGE_SIZE;
+static ForkStorage fork_storage{};
+
 // 编译期保护
 // 判断完整配置存储结构是否能放进 flash 256 bytes
 static_assert(sizeof(ConfigStorage) <= FLASH_PAGE_SIZE);
+static_assert(sizeof(ForkStorage) <= FLASH_PAGE_SIZE);
 // 配置区起始地址必须按 flash sector 对齐。
 static_assert(CONFIG_FLASH_OFFSET % FLASH_SECTOR_SIZE == 0);
 
@@ -37,8 +44,58 @@ static uint32_t calc_config_crc(const ConfigStorage &con) {
                  sizeof(ConfigStorage) - offsetof(Config, body));
 }
 
+static uint32_t calc_fork_crc(const ForkStorage &fork) {
+    return crc32(reinterpret_cast<const uint8_t *>(&fork.layers),
+                 sizeof(ForkStorage) - offsetof(ForkStorage, layers));
+}
+
 static const ConfigStorage *get_xip_addr(uint32_t offset) {
     return reinterpret_cast<const ConfigStorage *>(XIP_BASE + offset);
+}
+
+static const ForkStorage *get_fork_xip_addr() {
+    return reinterpret_cast<const ForkStorage *>(XIP_BASE + FORK_FLASH_OFFSET);
+}
+
+// Firmware before ForkStorage appended the layers to ConfigStorage on page 0,
+// and that page's crc32 covered them. These sizes are of that old layout, not of
+// the current structs.
+constexpr uint32_t LEGACY_LAYERS_OFFSET = 155;
+constexpr uint32_t LEGACY_STORAGE_SIZE = LEGACY_LAYERS_OFFSET + sizeof(ButtonLayers);
+static_assert(LEGACY_STORAGE_SIZE == 249);
+
+// Copies layers saved by that firmware. The old crc32 must match, which proves
+// the bytes are that layout and not something upstream later put there.
+static bool load_legacy_layers() {
+    const auto *page = reinterpret_cast<const uint8_t *>(XIP_BASE + CONFIG_FLASH_OFFSET);
+    const auto *old = reinterpret_cast<const Config *>(page);
+    if (old->magic != CONFIG_MAGIC || page[LEGACY_LAYERS_OFFSET] != BUTTON_LAYER_FORMAT) {
+        return false;
+    }
+    const uint32_t body = offsetof(Config, body);
+    if (crc32(page + body, LEGACY_STORAGE_SIZE - body) != old->crc32) {
+        return false;
+    }
+    memcpy(&fork_storage.layers, page + LEGACY_LAYERS_OFFSET, sizeof(ButtonLayers));
+    printf("[Config] Button layers moved from the config page\n");
+    return true;
+}
+
+static void fork_storage_load() {
+    const ForkStorage *flash = get_fork_xip_addr();
+    memcpy(&fork_storage, flash, sizeof(fork_storage));
+    if (fork_storage.magic == FORK_STORAGE_MAGIC && fork_storage.crc32 == calc_fork_crc(fork_storage)) {
+        return;
+    }
+    // 0xFF fails the format check in button_layer_valid(): all layers off.
+    memset(&fork_storage.layers, 0xFF, sizeof(fork_storage.layers));
+    if (flash->magic == 0xFFFFFFFF) {
+        // Never written: migrate from the old location if it is there.
+        load_legacy_layers();
+    } else {
+        printf("[Config] Fork storage is invalid\n");
+    }
+    fork_storage.magic = FORK_STORAGE_MAGIC;
 }
 
 static bool load_old_config() {
@@ -181,7 +238,7 @@ void config_valid() {
 }
 
 void button_layer_valid() {
-    auto &layers = storage.button.layers;
+    auto &layers = fork_storage.layers;
     if (layers.format != BUTTON_LAYER_FORMAT) {
         // 0xFF from older firmware, or an earlier layer layout: all layers off.
         printf("[Config] Button layers reset (format %u)\n", layers.format);
@@ -263,6 +320,7 @@ void shortcut_valid() {
 
 void config_load() {
     memcpy(&storage, get_xip_addr(CONFIG_FLASH_OFFSET), sizeof(storage));
+    fork_storage_load();
 
     config_valid();
 }
@@ -271,20 +329,25 @@ void config_load() {
 // neither core touches XIP flash while the sector is erased/programmed. Without
 // the core1 park this races the audio core and corrupts audio (buzzing).
 static void config_save_flash_op(void *param) {
-    const auto *page = static_cast<const uint8_t *>(param);
+    const auto *pages = static_cast<const uint8_t *>(param);
     const uint32_t interrupts = save_and_disable_interrupts();
     flash_range_erase(CONFIG_FLASH_OFFSET, FLASH_SECTOR_SIZE);
-    flash_range_program(CONFIG_FLASH_OFFSET, page, FLASH_PAGE_SIZE);
+    flash_range_program(CONFIG_FLASH_OFFSET, pages, 2 * FLASH_PAGE_SIZE);
     restore_interrupts(interrupts);
 }
 
 bool config_save() {
     config.crc32 = calc_config_crc(storage);
-    alignas(4) uint8_t page[FLASH_PAGE_SIZE];
-    memset(page, 0xff, sizeof(page));
-    memcpy(page, &storage, sizeof(storage));
+    fork_storage.magic = FORK_STORAGE_MAGIC;
+    fork_storage.crc32 = calc_fork_crc(fork_storage);
+    // ConfigStorage on page 0, ForkStorage on page 1. Static to keep 512 bytes
+    // off the stack.
+    alignas(4) static uint8_t pages[2 * FLASH_PAGE_SIZE];
+    memset(pages, 0xff, sizeof(pages));
+    memcpy(pages, &storage, sizeof(storage));
+    memcpy(pages + FLASH_PAGE_SIZE, &fork_storage, sizeof(fork_storage));
 
-    const int rc = flash_safe_execute(config_save_flash_op, page, 1000);
+    const int rc = flash_safe_execute(config_save_flash_op, pages, 1000);
     if (rc != PICO_OK) {
         printf("[Config] config_save flash_safe_execute failed: %d\n", rc);
         return false;
@@ -292,8 +355,11 @@ bool config_save() {
 
     ConfigStorage verify{};
     memcpy(&verify, get_xip_addr(CONFIG_FLASH_OFFSET), sizeof(verify));
+    ForkStorage fork_verify{};
+    memcpy(&fork_verify, get_fork_xip_addr(), sizeof(fork_verify));
     const auto verify_crc32 = calc_config_crc(verify);
-    if (verify_crc32 == config.crc32) {
+    if (verify_crc32 == config.crc32 && fork_verify.magic == FORK_STORAGE_MAGIC &&
+        calc_fork_crc(fork_verify) == fork_storage.crc32) {
         printf("[Config] Config write flash verify success\n");
         return true;
     }
@@ -307,6 +373,10 @@ Config_body& get_config() {
 
 Button& get_button() {
     return storage.button;
+}
+
+ButtonLayers& get_button_layers() {
+    return fork_storage.layers;
 }
 
 void set_button_remap(const uint8_t *new_remap, const uint16_t len) {
@@ -323,7 +393,7 @@ void set_button_layers(const uint8_t first_layer, const uint8_t *data, const uin
     const size_t room = first_layer == 0 ? BUTTON_LAYER_REPORT1_SIZE
                                          : (BUTTON_LAYER_COUNT - first_layer) * sizeof(ButtonLayer);
     const size_t copy_len = len < room ? len : room;
-    memcpy(&storage.button.layers.layer[first_layer], data, copy_len);
+    memcpy(&fork_storage.layers.layer[first_layer], data, copy_len);
     button_layer_valid();
 }
 

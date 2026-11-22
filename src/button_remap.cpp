@@ -127,9 +127,10 @@ static bool is_mouse_target(const uint8_t target) {
 
 bool button_remap_uses_mouse() {
     const Button &button = get_button();
+    const ButtonLayers &layers = get_button_layers();
     for (uint8_t i = 0; i < BUTTON_REMAP_COUNT; i++) {
         if (is_mouse_target(button.button_remap[i])) return true;
-        for (const auto &layer : button.layers.layer) {
+        for (const auto &layer : layers.layer) {
             if (is_mouse_target(layer.remap[i])) return true;
         }
     }
@@ -148,6 +149,7 @@ void button_remap_apply(USBGetStateData &state_data) {
     // keeps using it until it is released, whatever the layer buttons do in
     // the meantime.
     const Button &button = get_button();
+    const ButtonLayers &layers = get_button_layers();
     const USBGetStateData state_copy = state_data;
 
     uint32_t pressed = 0;
@@ -163,7 +165,7 @@ void button_remap_apply(USBGetStateData &state_data) {
     uint32_t hold_masks[BUTTON_LAYER_COUNT];
     uint32_t layer_buttons = 0;
     for (uint8_t n = 0; n < BUTTON_LAYER_COUNT; n++) {
-        hold_masks[n] = button_layer_hold_mask(button.layers.layer[n]);
+        hold_masks[n] = button_layer_hold_mask(layers.layer[n]);
         layer_buttons |= hold_masks[n];
     }
     const uint32_t held = pressed & layer_buttons;
@@ -192,7 +194,7 @@ void button_remap_apply(USBGetStateData &state_data) {
     for (uint8_t i = 0; i < Disable; i++) {
         // A layer entry left at identity inherits the base mapping.
         const uint8_t latched = latched_layer[i];
-        const uint8_t *table = latched ? button.layers.layer[latched - 1].remap : nullptr;
+        const uint8_t *table = latched ? layers.layer[latched - 1].remap : nullptr;
         const bool use_layer = table != nullptr && table[i] != i;
         uint8_t target = use_layer ? table[i] : button.button_remap[i];
         if (layer_buttons & (1u << i)) {

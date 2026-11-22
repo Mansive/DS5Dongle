@@ -79,11 +79,20 @@ emit keyboard and media keys.
 - Clients write `0xFC` first, then `0xFD`.
 - `0xFA` is unchanged. Extending it would let old web UIs, which zero-pad
   their 63-byte write, fill the layer with zeros ("everything → D-pad Up").
-- Storage: `ButtonLayers` (a format byte plus 3 × 31 = 94 bytes) is appended
-  to `Button`, with no `CONFIG_VERSION` bump. `ConfigStorage` is 249 of the
-  256 bytes allowed.
+- Storage: `ButtonLayers` (a format byte plus 3 × 31 = 94 bytes) lives in
+  `ForkStorage` on the second flash page of the config sector, after a magic
+  and a CRC32 (102 of 256 bytes). `ConfigStorage` on the first page stays
+  identical to upstream, so upstream can grow it without moving the layers.
+  One sector erase still covers a save, which programs both pages.
+- Loading:
+  - A page 1 with the right magic and CRC32 is used as is.
+  - A blank page 1 means an upgrade from firmware that appended the layers to
+    `ConfigStorage` at byte 155. They are copied from there only when that
+    firmware's CRC32, which covered them, still matches. The next save writes
+    page 1 and clears the old copy.
+  - Anything else resets every layer to off.
 - Format byte `BUTTON_LAYER_FORMAT` (`0x4C`). Any other value (`0xFF` from
-  older firmware, or an earlier layer layout) resets every layer to off with
+  erased flash, or an earlier layer layout) resets every layer to off with
   identity tables.
 - Validation (`button_layer_valid`):
   - Hold bits past RightPaddle are cleared.
@@ -161,7 +170,7 @@ python tools/config_tool.py layer --reset                                   # ev
 | 22 | Regular DualSense | Paddles not offered; other buttons can be hold buttons |
 | 23 | DS5 emulation with an Edge | Paddle layers work |
 | 24 | Overlap with Shortcuts | Not flagged in the UI. Both fire, because shortcuts read physical state |
-| 25 | Flash up/downgrade | Unknown format byte reads as "all layers off"; no version bump |
+| 25 | Flash up/downgrade | Layers from the old page 0 location are migrated once. An unknown format byte reads as "all layers off". No version bump |
 
 ## Known limitations
 
@@ -184,7 +193,11 @@ python tools/config_tool.py layer --reset                                   # ev
   `tests/layer_remap_test.cpp`. It covers latch, release order, idempotence,
   combination layers and their latching, a chord-only layer, a three-button
   layer, layer 2 alone, D-pad merge and cancel, swaps, inheritance, layer
-  button rules, resets, and validation.
+  button rules, resets, and validation. A second firmware test runs the real
+  `ForkStorage` loader from `config.cpp` against a host flash array
+  (`tests/fork_storage_test.cpp`). It covers the migration from the old
+  location, a wrong old CRC32, upstream-shaped flash, fresh flash, and a valid
+  or corrupt page 1.
 - Web UI: `bun test` (`tests/button-layer.test.ts`: hold bitmask encoding,
   encode/decode for `0xFC` and `0xFD`, normalization, support detection,
   `0xFC`-then-`0xFD` write order) and `bun run build`. The UI was also driven

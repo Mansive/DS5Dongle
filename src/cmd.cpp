@@ -94,7 +94,7 @@ uint16_t pico_cmd_get(uint8_t report_id, uint8_t *buffer, uint16_t reqlen) {
         const bool first = report_id == 0xfc;
         const size_t size = first ? BUTTON_LAYER_REPORT1_SIZE : BUTTON_LAYER_REPORT2_SIZE;
         const auto len = std::min(size, static_cast<size_t>(reqlen));
-        memcpy(buffer, &get_button().layers.layer[first ? 0 : 2], len);
+        memcpy(buffer, &get_button_layers().layer[first ? 0 : 2], len);
         return len;
     }
     return 0;

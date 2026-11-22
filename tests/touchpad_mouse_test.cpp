@@ -22,11 +22,12 @@ static int failures = 0;
 
 static void reset_tables() {
     std::memset(&storage, 0, sizeof(storage));
+    std::memset(&fork_storage, 0, sizeof(fork_storage));
     for (uint8_t i = 0; i < BUTTON_REMAP_COUNT; i++) {
         storage.button.button_remap[i] = i;
-        for (auto &layer : storage.button.layers.layer) layer.remap[i] = i;
+        for (auto &layer : fork_storage.layers.layer) layer.remap[i] = i;
     }
-    storage.button.layers.format = BUTTON_LAYER_FORMAT;
+    fork_storage.layers.format = BUTTON_LAYER_FORMAT;
     button_remap_reset();
 }
 
@@ -79,7 +80,7 @@ static void test_base_mouse_targets() {
 
 static void test_layer_mouse_targets() {
     reset_tables();
-    auto &layer = storage.button.layers.layer[0];
+    auto &layer = fork_storage.layers.layer[0];
     constexpr uint32_t hold = 1u << (ButtonLeftPaddle - ButtonSquare);
     layer.hold[0] = static_cast<uint8_t>(hold & 0xFF);
     layer.hold[1] = static_cast<uint8_t>((hold >> 8) & 0xFF);
@@ -121,11 +122,11 @@ static void test_layer_mouse_targets() {
 
 static void test_validation() {
     reset_tables();
-    storage.button.layers.layer[1].remap[ButtonSquare] = MouseForward;
-    storage.button.layers.layer[1].remap[ButtonCircle] = RemapTargetCount; // out of range
+    fork_storage.layers.layer[1].remap[ButtonSquare] = MouseForward;
+    fork_storage.layers.layer[1].remap[ButtonCircle] = RemapTargetCount; // out of range
     button_layer_valid();
-    CHECK(storage.button.layers.layer[1].remap[ButtonSquare] == MouseForward);
-    CHECK(storage.button.layers.layer[1].remap[ButtonCircle] == ButtonCircle);
+    CHECK(fork_storage.layers.layer[1].remap[ButtonSquare] == MouseForward);
+    CHECK(fork_storage.layers.layer[1].remap[ButtonCircle] == ButtonCircle);
     reset_tables();
     CHECK(!button_remap_uses_mouse());
 }

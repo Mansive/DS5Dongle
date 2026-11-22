@@ -129,11 +129,13 @@ class TouchpadFirmwareTests(unittest.TestCase):
 #include "button_remap.h"
 struct Button {
     uint8_t button_remap[BUTTON_REMAP_COUNT];
-    ButtonLayers layers;
 };
 struct Storage { Button button; };
 inline Storage storage;
 inline Button& get_button() { return storage.button; }
+struct ForkStorage { ButtonLayers layers; };
+inline ForkStorage fork_storage;
+inline ButtonLayers& get_button_layers() { return fork_storage.layers; }
 void button_layer_valid();
 ''', encoding='utf-8')
             (tmp / 'config_layer.cpp').write_text(
