@@ -77,7 +77,11 @@ emit keyboard and media keys.
 - Both are declared as 63 bytes in the DS and DSE descriptors. GET returns the
   current values. SET copies up to the payload size, validates all layers, and
   resets the latches. Persist with `0xF6` funcid `0x02`.
-- Clients write `0xFC` first, then `0xFD`.
+- Clients write `0xFC` first, then `0xFD`. A client that changes layer 3's
+  hold set and layers 1–2 in one go writes `0xFC` once more afterwards. Each
+  write validates all layers against the other report's current hold sets, so
+  the first `0xFC` loses layer 1–2 entries for buttons that only the old layer
+  3 held. The web UI always writes the second `0xFC`.
 - `0xFA` is unchanged. Extending it would let old web UIs, which zero-pad
   their 63-byte write, fill the layer with zeros ("everything → D-pad Up").
 - Storage: `ButtonLayers` (a format byte plus 3 × 31 = 94 bytes) lives in
@@ -145,8 +149,8 @@ python tools/config_tool.py layer --reset                                   # ev
   - a base remap on a hold button
   - mappings in a layer with no hold buttons
   - L2/R2 analog values not being remapped
-- Save writes `0xFA` and/or the layers (`0xFC`, then `0xFD`), verifies each by
-  reading it back, and then saves to flash.
+- Save writes `0xFA` and/or the layers (`0xFC`, `0xFD`, then `0xFC` again),
+  verifies each by reading it back, and then saves to flash.
 
 ## Edge cases and how they ended up
 
@@ -217,7 +221,7 @@ python tools/config_tool.py layer --reset                                   # ev
   - picking Cross as a hold button and removing it again keeping layer 2's
     Cross mapping
   - a save writing `0xFC`, then `0xFD`, then the save-to-flash command, with
-    the expected hold bitmasks
+    the expected hold bitmasks (before the second `0xFC` was added)
 
 ## Hardware testing
 
