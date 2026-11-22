@@ -82,14 +82,13 @@ static bool load_legacy_layers() {
 }
 
 static void fork_storage_load() {
-    const ForkStorage *flash = get_fork_xip_addr();
-    memcpy(&fork_storage, flash, sizeof(fork_storage));
+    memcpy(&fork_storage, get_fork_xip_addr(), sizeof(fork_storage));
     if (fork_storage.magic == FORK_STORAGE_MAGIC && fork_storage.crc32 == calc_fork_crc(fork_storage)) {
         return;
     }
     // 0xFF fails the format check in button_layer_valid(): all layers off.
     memset(&fork_storage.layers, 0xFF, sizeof(fork_storage.layers));
-    if (flash->magic == 0xFFFFFFFF) {
+    if (fork_storage.magic == 0xFFFFFFFF) {
         // Never written: migrate from the old location if it is there.
         load_legacy_layers();
     } else {
@@ -358,8 +357,9 @@ bool config_save() {
     ForkStorage fork_verify{};
     memcpy(&fork_verify, get_fork_xip_addr(), sizeof(fork_verify));
     const auto verify_crc32 = calc_config_crc(verify);
-    if (verify_crc32 == config.crc32 && fork_verify.magic == FORK_STORAGE_MAGIC &&
-        calc_fork_crc(fork_verify) == fork_storage.crc32) {
+    // Page 1 is compared whole: a bad magic or crc32 field would reset the
+    // layers on the next boot even with intact layer bytes.
+    if (verify_crc32 == config.crc32 && memcmp(&fork_verify, &fork_storage, sizeof(fork_storage)) == 0) {
         printf("[Config] Config write flash verify success\n");
         return true;
     }
