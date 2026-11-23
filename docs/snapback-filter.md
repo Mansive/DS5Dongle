@@ -107,7 +107,11 @@ All thresholds are fractions of full travel, measured from `0x80`. They are in
 1. **Armed.** The stick is at 35% or further. Its position and the furthest
    it reached are remembered. If it reaches the other side without passing
    centre, as during a report gap, the furthest point starts over, so it always
-   belongs to the push the stick is let go from. Let go from 35–50%, the TMR stick still
+   belongs to the push the stick is let go from. The furthest point also
+   follows the stick down when it is more than 15 ms old, since a release
+   reaches centre within that time. So a stick pushed all the way, eased back
+   to 45% and let go from there is judged against 45%, not the full push. A
+   gap of more than 6 ms does not age it. Let go from 35–50%, the TMR stick still
    overshot by up to half that push, which is why the arm point is not higher.
 2. **Released.** Within 15 ms of last being armed, the stick's position along
    the remembered direction comes back to 15% or less. It does not have to land
@@ -130,8 +134,12 @@ All thresholds are fractions of full travel, measured from `0x80`. They are in
    - The hold time has passed since the release.
    - **Settled.** The stick has stayed within 3% of centre for 8 ms. A bounce
      swings through that zone faster. The zone suits the low deadzones (about
-     0–5%) used with TMR sticks. A stick that rests further than 3% off centre,
-     such as a worn potentiometer stick, never settles and gets the full hold.
+     0–5%) used with TMR sticks. A gap of more than 6 ms between reports
+     starts the 8 ms over, since the stick may have swung out and back during
+     it. A stick that rests further than 3% off centre, such as a worn
+     potentiometer stick, never settles. If it rests at 5% or more, or jitters
+     up to it, the steady push rule ends its hold. Otherwise it gets the full
+     hold.
    - **Hard push.** The stick is past 80% of the push it was let go from. The
      first overshoot measured stays below that, at most 53% of the push on the
      stock stick and 76% on the TMR stick, so the margin on a TMR stick is
@@ -140,7 +148,8 @@ All thresholds are fractions of full travel, measured from `0x80`. They are in
      pushed along. Bounces stay on that line. Diagonal releases drifted up to
      16% to the side.
    - **Steady push.** The stick is at 5% or more and has not moved back
-     towards centre for 10 ms. A bounce turns around within a few ms, while a
+     towards centre for 10 ms. The 10 ms count from the last move back,
+     including time spent below 5%. A bounce turns around within a few ms, while a
      thumb that moves the stick across centre stops and stays there. A gap of
      more than 6 ms between reports starts the 10 ms over, since the stick may
      have bounced during it. This rule used to start at 25%, so a deliberate
