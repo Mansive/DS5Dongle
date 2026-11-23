@@ -112,6 +112,42 @@ static void test_rise_restarts_after_gap() {
     check_held_between(s, 55, 4, 38);
 }
 
+static void test_settle_restarts_after_gap() {
+    // The stick is in the 3% zone at 6 ms, a dropout hides the overshoot, and
+    // it is back in the zone at 18 ms. Settling starts over there, so the 30%
+    // rebound after it stays held. Counted from 6 ms, the hold would end at 18.
+    const Sample s[] = {{0, 1.0, 0},  {2, 0.5, 0},  {4, 0.1, 0},  {6, 0.01, 0}, {18, 0.01, 0}, {20, 0.3, 0},
+                        {22, 0.2, 0}, {24, 0.05, 0}, {26, 0.0, 0}, {28, 0.0, 0}, {30, 0.0, 0},  {34, 0.0, 0}};
+    // Settled within 3% from 26 ms, so the hold ends at 34.
+    check_held_between(s, 55, 4, 34);
+}
+
+static void test_peak_follows_slow_ease() {
+    // Full push, eased back to 45% and aimed there, then let go and pushed
+    // 70% the other way. That is past 80% of the 45% push it was let go from,
+    // so it goes through at once. Judged against the earlier full push it
+    // would have been held. Reports come every 2 ms, since a longer gap keeps
+    // the peak.
+    SnapbackStick s;
+    for (int t = 0; t <= 50; t += 2) {
+        const double x = t < 30 ? 1.0 - 0.55 * t / 30.0 : 0.45;
+        CHECK(!step(s, {static_cast<double>(t), x, 0}, 30));
+    }
+    CHECK(!step(s, {52, 0.2, 0}, 30));
+    CHECK(step(s, {54, 0.02, 0}, 30));
+    CHECK(!step(s, {56, -0.7, 0}, 30));
+    CHECK(!step(s, {58, -0.7, 0}, 30));
+}
+
+static void test_peak_kept_across_dropout() {
+    // Full push, then 20 ms without reports, and the first report back is
+    // mid-release at 50%. The gap does not age the full push's peak, so the
+    // 60% overshoot stays below 80% of it and is held.
+    const Sample s[] = {{-10, 1.0, 0}, {0, 1.0, 0},   {20, 0.5, 0},  {22, 0.05, 0},
+                        {24, -0.6, 0}, {26, -0.3, 0}, {28, 0.1, 0},  {30, 0.15, 0}};
+    check_held_between(s, 30, 22);
+}
+
 static void test_hard_push_escapes() {
     // Let go, then flick hard the other way 8 ms later: that goes through.
     SnapbackStick s;
@@ -338,6 +374,9 @@ int main() {
     test_partial_release_is_held();
     test_reversal_goes_through();
     test_rise_restarts_after_gap();
+    test_settle_restarts_after_gap();
+    test_peak_follows_slow_ease();
+    test_peak_kept_across_dropout();
     test_hard_push_escapes();
     test_peak_starts_over_on_other_side();
     test_jump_past_centre();

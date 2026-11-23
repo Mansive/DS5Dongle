@@ -149,9 +149,15 @@ bool __not_in_flash_func(snapback_step)(SnapbackStick &stick, const uint8_t x, c
     if (since_last > GAP_TICKS) {
         // It can come back already past centre, so leave the gap out of the
         // release window and that release is still caught.
-        if (stick.armed) stick.armed_at += since_last;
-        // It may have bounced, so a steady push starts over.
-        if (stick.holding) stick.rise_from = timestamp;
+        if (stick.armed) {
+            stick.armed_at += since_last;
+            stick.peak_at += since_last;
+        }
+        // It may have bounced, so a steady push and settling start over.
+        if (stick.holding) {
+            stick.rise_from = timestamp;
+            stick.settling = false;
+        }
     }
 
     if (stick.holding) {
@@ -174,7 +180,13 @@ bool __not_in_flash_func(snapback_step)(SnapbackStick &stick, const uint8_t x, c
         }
         // The peak belongs to the push on this side. Moving to the other side
         // without passing centre, as during a report gap, starts a new one.
-        if (!stick.armed || along(stick, dx, dy) <= 0 || r > stick.peak_r) stick.peak_r = static_cast<uint8_t>(r);
+        // So does easing back slowly: a release reaches centre within the
+        // release window, so an older peak is not the push it starts from.
+        if (!stick.armed || along(stick, dx, dy) <= 0 || r >= stick.peak_r ||
+            timestamp - stick.peak_at > RELEASE_TICKS) {
+            stick.peak_r = static_cast<uint8_t>(r);
+            stick.peak_at = timestamp;
+        }
         stick.armed = true;
         stick.armed_at = timestamp;
         stick.arm_x = static_cast<int16_t>(dx);

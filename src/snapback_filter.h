@@ -40,7 +40,10 @@ constexpr uint32_t SNAPBACK_SETTLE_MS = 8;
 // While holding, these also end the hold, since a spring bounce does neither.
 // A deflection of at least SNAPBACK_PUSH_PERCENT that grows or stays put for
 // SNAPBACK_RISE_MS (a bounce turns around within a few ms, while a thumb that
-// moves the stick across centre stops and stays there)...
+// moves the stick across centre stops and stays there). The time counts from
+// the last drop, including time spent below SNAPBACK_PUSH_PERCENT, so a stick
+// that rests a little off centre, outside the settle zone, passes through once
+// it reaches SNAPBACK_PUSH_PERCENT...
 constexpr uint32_t SNAPBACK_RISE_MS = 10;
 constexpr uint8_t SNAPBACK_PUSH_PERCENT = 5;
 // ...and a move this far sideways from the direction the stick was pushed
@@ -58,7 +61,8 @@ struct SnapbackStick {
     uint32_t armed_at = 0;    // Timestamp it was last there
     int16_t arm_x = 0;        // Where it was then, relative to centre
     int16_t arm_y = 0;
-    uint8_t peak_r = 0;       // Largest deflection of that push
+    uint8_t peak_r = 0;       // Largest deflection of that push in the release window
+    uint32_t peak_at = 0;     // Timestamp it was last reached
     bool holding = false;     // Reporting the stick at centre
     uint32_t hold_from = 0;   // Timestamp the hold started
     // While holding:
