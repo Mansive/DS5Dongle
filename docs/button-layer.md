@@ -233,6 +233,8 @@ Tested on a DualSense Edge over Bluetooth:
   paddle from activating layers, and switching back restores it (case 21).
 - Paddle layers work in DS5 emulation mode (case 23).
 - After a disconnect, no layer or held button stays stuck (case 8).
+- Flashing the firmware that moved the layers to page 1 over the old firmware
+  kept the saved layers. They stayed after a save and a power cycle.
 
 ## Open items
 
