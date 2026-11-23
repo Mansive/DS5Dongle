@@ -194,6 +194,90 @@ static void test_motion() {
     CHECK(dx == 0 && dy == 0);
 }
 
+// Runs one report through finger selection and tracking, like touchpad_mouse_on_report.
+static void feed(TouchpadMotion &m, const USBGetStateData &s, int32_t &dx, int32_t &dy) {
+    const TouchFingerData *finger = touchpad_pick_finger(m, s.Touch);
+    if (finger) {
+        touchpad_motion_step(m, true, finger->Index, finger->FingerX, finger->FingerY, 8, dx, dy);
+    } else {
+        touchpad_motion_step(m, false, 0, 0, 0, 0, dx, dy);
+    }
+}
+
+static void touch(USBGetStateData &s, int slot, uint8_t index, uint16_t x, uint16_t y) {
+    auto &finger = s.Touch.Finger[slot];
+    finger.NotTouching = 0;
+    finger.Index = index;
+    finger.FingerX = x;
+    finger.FingerY = y;
+}
+
+static void test_finger_handoff() {
+    TouchpadMotion m;
+    int32_t dx = 0, dy = 0;
+    USBGetStateData s = idle();
+    s.Touch.Finger[0].NotTouching = s.Touch.Finger[1].NotTouching = 1;
+
+    // Finger A in slot 0 moves the pointer.
+    touch(s, 0, 10, 500, 500);
+    feed(m, s, dx, dy);
+    touch(s, 0, 10, 510, 500);
+    feed(m, s, dx, dy);
+    CHECK(dx == 5 && m.index == 10);
+
+    // Finger B lands in slot 1 far away. A keeps the pointer.
+    touch(s, 1, 11, 1500, 900);
+    touch(s, 0, 10, 520, 500);
+    feed(m, s, dx, dy);
+    CHECK(dx == 5 && m.index == 10);
+
+    // A lifts. B takes over without a jump, then moves the pointer.
+    s.Touch.Finger[0].NotTouching = 1;
+    feed(m, s, dx, dy);
+    CHECK(dx == 0 && dy == 0 && m.index == 11);
+    touch(s, 1, 11, 1510, 900);
+    feed(m, s, dx, dy);
+    CHECK(dx == 5);
+
+    // A third finger in the free slot 0 does not take over from B.
+    touch(s, 0, 12, 100, 100);
+    touch(s, 1, 11, 1520, 900);
+    feed(m, s, dx, dy);
+    CHECK(dx == 5 && m.index == 11);
+
+    // Both lift. The next touch starts over, wherever it lands.
+    s.Touch.Finger[0].NotTouching = s.Touch.Finger[1].NotTouching = 1;
+    feed(m, s, dx, dy);
+    CHECK(dx == 0 && dy == 0 && !m.tracking);
+    touch(s, 1, 13, 300, 300);
+    feed(m, s, dx, dy);
+    CHECK(dx == 0 && dy == 0 && m.index == 13);
+}
+
+static void test_pause() {
+    TouchpadPause p;
+
+    // Nothing to pause while the mode is off.
+    CHECK(!touchpad_pause_toggle(p, TouchpadMouseOff));
+    CHECK(!touchpad_pause_update(p, TouchpadMouseOn));
+
+    // The toggle pauses and resumes.
+    CHECK(touchpad_pause_toggle(p, TouchpadMouseOn));
+    CHECK(touchpad_pause_update(p, TouchpadMouseOn));
+    CHECK(touchpad_pause_toggle(p, TouchpadMouseOn));
+    CHECK(!touchpad_pause_update(p, TouchpadMouseOn));
+
+    // Turning the mode off and on again in the config ends the pause.
+    touchpad_pause_toggle(p, TouchpadMouseOn);
+    CHECK(!touchpad_pause_update(p, TouchpadMouseOff));
+    CHECK(!touchpad_pause_update(p, TouchpadMouseOn));
+
+    // So does a switch to the other on mode.
+    touchpad_pause_toggle(p, TouchpadMouseHideTouch);
+    CHECK(touchpad_pause_update(p, TouchpadMouseHideTouch));
+    CHECK(!touchpad_pause_update(p, TouchpadMouseOn));
+}
+
 static void test_hide_touch() {
     USBGetStateData s = idle();
     s.Touch.Finger[0].NotTouching = 0;
@@ -212,6 +296,8 @@ int main() {
     test_layer_mouse_targets();
     test_validation();
     test_motion();
+    test_finger_handoff();
+    test_pause();
     test_hide_touch();
     if (failures) {
         std::printf("%d check(s) failed\n", failures);

@@ -16,6 +16,18 @@ static constexpr float GAIN_PER_STEP = 0.05f;
 static constexpr float ACCEL_SPEED_FULL = 48.0f; // touchpad units per report
 static constexpr float ACCEL_MAX_BOOST = 1.5f;
 
+const TouchFingerData *touchpad_pick_finger(const TouchpadMotion &motion, const TouchData &touch) {
+    if (motion.tracking) {
+        for (const auto &finger : touch.Finger) {
+            if (!finger.NotTouching && finger.Index == motion.index) return &finger;
+        }
+    }
+    for (const auto &finger : touch.Finger) {
+        if (!finger.NotTouching) return &finger;
+    }
+    return nullptr;
+}
+
 void touchpad_motion_step(TouchpadMotion &motion, const bool touching, const uint8_t index, const uint16_t x,
                           const uint16_t y, const uint8_t sensitivity, int32_t &dx, int32_t &dy) {
     dx = 0;
@@ -60,6 +72,20 @@ void touchpad_hide_touch(USBGetStateData &state) {
     }
 }
 
+bool touchpad_pause_update(TouchpadPause &pause, const uint8_t mode) {
+    if (pause.paused && pause.mode != mode) pause = {};
+    return pause.paused;
+}
+
+bool touchpad_pause_toggle(TouchpadPause &pause, const uint8_t mode) {
+    // With the mode off there is nothing to pause. Pausing anyway would leave
+    // the mouse paused once the config turns it on.
+    if (mode == TouchpadMouseOff) return false;
+    pause.paused = !touchpad_pause_update(pause, mode);
+    pause.mode = mode;
+    return true;
+}
+
 #ifdef ENABLE_WAKE_HID
 
 #include "tusb.h"
@@ -74,15 +100,19 @@ static int32_t pending_x = 0;
 static int32_t pending_y = 0;
 static uint8_t buttons = 0;
 static uint8_t sent_buttons = 0;
-static bool runtime_enabled = true;
+static TouchpadPause toggle_pause;
 
 static bool mouse_available() {
     return !usb_keyboard_only && !usb_reconfiguring && tud_mounted() && !tud_suspended();
 }
 
-// Configured on and not turned off by the toggle shortcut.
+static bool paused() {
+    return touchpad_pause_update(toggle_pause, get_config().touchpad_mouse);
+}
+
+// Configured on and not paused by the toggle shortcut.
 static bool touchpad_mouse_active() {
-    return runtime_enabled && get_config().touchpad_mouse != TouchpadMouseOff;
+    return !paused() && get_config().touchpad_mouse != TouchpadMouseOff;
 }
 
 static void clear_pointer() {
@@ -91,7 +121,7 @@ static void clear_pointer() {
 }
 
 bool touchpad_mouse_hides_touch() {
-    return runtime_enabled && get_config().touchpad_mouse == TouchpadMouseHideTouch;
+    return !paused() && get_config().touchpad_mouse == TouchpadMouseHideTouch;
 }
 
 void touchpad_mouse_reset() {
@@ -101,12 +131,9 @@ void touchpad_mouse_reset() {
 }
 
 void touchpad_mouse_toggle() {
-    // With the touchpad mouse off in the config there is nothing to toggle.
-    // Flipping the flag anyway would leave it off once the config turns it on.
-    if (get_config().touchpad_mouse == TouchpadMouseOff) return;
-    runtime_enabled = !runtime_enabled;
+    if (!touchpad_pause_toggle(toggle_pause, get_config().touchpad_mouse)) return;
     clear_pointer();
-    printf("[Touchpad] Mouse %s\n", runtime_enabled ? "on" : "off");
+    printf("[Touchpad] Mouse %s\n", toggle_pause.paused ? "off" : "on");
 }
 
 void touchpad_mouse_on_report(const USBGetStateData &state) {
@@ -117,10 +144,14 @@ void touchpad_mouse_on_report(const USBGetStateData &state) {
     buttons = button_remap_mouse_buttons();
 
     if (touchpad_mouse_active()) {
-        const auto &finger = state.Touch.Finger[0];
+        const TouchFingerData *finger = touchpad_pick_finger(motion, state.Touch);
         int32_t dx, dy;
-        touchpad_motion_step(motion, !finger.NotTouching, finger.Index, finger.FingerX, finger.FingerY,
-                             get_config().touchpad_sensitivity, dx, dy);
+        if (finger) {
+            touchpad_motion_step(motion, true, finger->Index, finger->FingerX, finger->FingerY,
+                                 get_config().touchpad_sensitivity, dx, dy);
+        } else {
+            touchpad_motion_step(motion, false, 0, 0, 0, 0, dx, dy);
+        }
         pending_x = std::clamp(pending_x + dx, -PENDING_LIMIT, PENDING_LIMIT);
         pending_y = std::clamp(pending_y + dy, -PENDING_LIMIT, PENDING_LIMIT);
     } else {
@@ -130,6 +161,9 @@ void touchpad_mouse_on_report(const USBGetStateData &state) {
 }
 
 void touchpad_mouse_task() {
+    // Runs every main loop pass, so a mode change ends the pause even while
+    // no controller reports arrive.
+    paused();
     if (!mouse_available()) {
         // The host forgets mouse state on suspend and re-enumeration.
         clear_pointer();

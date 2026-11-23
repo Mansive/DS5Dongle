@@ -113,6 +113,7 @@ class TouchpadFirmwareTests(unittest.TestCase):
     def test_firmware(self):
         utils = (ROOT / 'src/utils.h').read_text(encoding='utf-8')
         config = (ROOT / 'src/config.cpp').read_text(encoding='utf-8')
+        modes = extract((ROOT / 'src/config.h').read_text(encoding='utf-8'), 'enum TouchpadMouseMode', '};')
         with tempfile.TemporaryDirectory() as directory:
             tmp = Path(directory)
             for name in ('button_remap.cpp', 'button_remap.h', 'button_utils.cpp', 'button_utils.h',
@@ -137,7 +138,7 @@ struct ForkStorage { ButtonLayers layers; };
 inline ForkStorage fork_storage;
 inline ButtonLayers& get_button_layers() { return fork_storage.layers; }
 void button_layer_valid();
-''', encoding='utf-8')
+''' + modes + '\n', encoding='utf-8')
             (tmp / 'config_layer.cpp').write_text(
                 '#include "config.h"\n#include "button_utils.h"\n' +
                 extract_function(config, 'void button_layer_valid() {'), encoding='utf-8')
