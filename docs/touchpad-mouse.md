@@ -2,7 +2,8 @@
 
 Status: implemented in firmware, `tools/config_tool.py`, and the web UI
 (`ds5dongle-config-web`, branch `feat/touchpad-mouse`). The firmware builds
-and the host tests pass. It has **not** been tested on hardware yet. See
+and the host tests pass. On hardware, base remaps to mouse buttons work over
+Bluetooth. Cursor movement has **not** been tested on hardware yet. See
 [Open items](#open-items).
 
 ## What it does
@@ -37,9 +38,12 @@ Two-finger scrolling is not implemented.
 
 ## Behaviour
 
-- Only the first finger moves the cursor. A second finger is ignored.
+- One finger moves the cursor. While it stays down, other fingers are
+  ignored. When it lifts and another finger is still down, that finger takes
+  over. A new touch never takes over from the finger moving the cursor.
 - Putting a finger down never moves the cursor. Movement starts with the next
-  report. A new finger (a new touch index) starts over the same way.
+  report. A new finger (a new touch index), including one taking over, starts
+  over the same way.
 - A jump of more than 400 touchpad units between two reports is treated as a
   glitch and ignored.
 - Fractions of a count carry over between reports, so slow movement is not
@@ -51,8 +55,11 @@ Two-finger scrolling is not implemented.
   is removed from the gamepad report, like any other remap.
 - Pressed mouse buttons are released on BT disconnect.
 - The toggle shortcut affects only the running session. It does nothing while
-  `touchpad_mouse` is `0`, and it resets to "on" after a reboot. While paused,
-  touches reach the game even in mode 2. Mouse-button remaps keep working.
+  `touchpad_mouse` is `0`. The pause ends on the next toggle, after a reboot,
+  or when `touchpad_mouse` changes value, so turning the mode off and on again
+  never leaves it paused. A sensitivity change keeps it paused. While paused,
+  touches reach the game even in mode 2, so the toggle hands the touchpad back
+  to the game. Mouse-button remaps keep working.
 
 ## USB
 
@@ -110,22 +117,24 @@ python tools/config_tool.py shortcut 7=Pad*2:toggle_touchpad_mouse
 ## Web UI
 
 - **General** page: a **Touchpad mouse** section with the mode and the
-  sensitivity. It only appears on firmware that supports the feature.
-  Sensitivity is greyed out while the mode is off.
+  sensitivity. Sensitivity is greyed out while the mode is off. The web UI
+  only accepts firmware with the [snapback filter](snapback-filter.md), and
+  all such firmware has this feature, so the section always appears.
 - **Remap** page: the output dropdown gains a **Mouse** group with the five
   mouse buttons, for the base table and every layer. Choosing one while the
   mouse interface is not enumerated shows the reconnect reminder.
 - **Shortcuts** page: a **Toggle touchpad mouse** output action.
-- Saving the General settings now writes all 27 bytes and keeps
-  `sleep_on_dock` as read. Before this change, a web save reset
-  `sleep_on_dock` to off.
+- Saving the General settings writes the whole `Config_body` (29 bytes since
+  the snapback filter) and keeps `sleep_on_dock` as read. Before this change,
+  a web save reset `sleep_on_dock` to off.
 
 ## Tests
 
 - `python tests/test_touchpad_mouse.py`: tool tests, plus a firmware test that
   compiles the real `touchpad_mouse.cpp` and `button_remap.cpp` with g++ and
   runs `tests/touchpad_mouse_test.cpp`. It covers touch-down, finger changes,
-  jumps, sensitivity and acceleration, remainder carry, hiding touches, mouse
+  the handover between two fingers, the toggle's pause, jumps, sensitivity and
+  acceleration, remainder carry, hiding touches, mouse
   targets in base and layer tables, layer-table validation, the config byte
   layout, and the report descriptor size.
 - `python tests/test_layer.py` and `python tests/test_hold.py` still pass.
@@ -140,10 +149,13 @@ python tools/config_tool.py shortcut 7=Pad*2:toggle_touchpad_mouse
 
 ## Open items
 
-- Flash the firmware and test on hardware:
+- Test on hardware:
   - cursor feel at the default sensitivity, and the acceleration curve
+  - lifting the first finger while a second finger is down
+  - jitter at high sensitivity while clicking the touchpad. A deadzone of 1–2
+    units can be added if the cursor wiggles.
   - mode 2 in a game that uses the touchpad
-  - mouse buttons over BT, including in layers, and their release on disconnect
+  - mouse buttons in layers, and their release on disconnect
   - Windows, macOS and Linux enumeration of the extra report ID
   - the 1 ms interval with media keys and wake still working
 - Possible later additions: two-finger scrolling, tap to click.
