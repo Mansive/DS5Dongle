@@ -284,6 +284,15 @@ static void test_slow_decaying_bounce_stays_held() {
     check_held_between(s, 55, 3);
 }
 
+static void test_slow_sag_counts_as_drop() {
+    // The overshoot peaks at 51 counts and sags back one count per report.
+    // Each report is within RISE_NOISE of the one before, but measured from
+    // the peak it is moving back towards centre, so the hold continues.
+    Sample s[16] = {{0, 1.0, 0}, {2, 0.4, 0}, {4, 0.1, 0}, {6, -0.3, 0}};
+    for (int k = 0; k < 12; ++k) s[4 + k] = {8.0 + 2 * k, -(51 - k) / 127.0, 0};
+    check_held_between(s, 55, 4);
+}
+
 static void test_slow_push_escapes() {
     // Let go, then pushed the other way slowly: past 5% and still growing
     // 10 ms after the release, so it goes through.
@@ -422,6 +431,7 @@ int main() {
     test_slow_decaying_bounce_stays_held();
     test_overshoot_after_dropout();
     test_slow_push_escapes();
+    test_slow_sag_counts_as_drop();
     test_modelled_bounces_stay_held();
     test_release_across_dropout();
     test_apply_centres_only_that_stick();

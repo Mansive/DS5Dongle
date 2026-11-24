@@ -112,9 +112,15 @@ bool __not_in_flash_func(keep_holding)(SnapbackStick &stick, const int32_t dx, c
     // Sideways from the line the stick bounces along.
     if (sideways(stick, dx, dy)) return false;
 
-    // A deflection that grows or stays put.
-    if (r + RISE_NOISE < stick.prev_r) stick.rise_from = timestamp;
-    stick.prev_r = static_cast<uint8_t>(r);
+    // A deflection that grows or stays put. A drop is measured from the
+    // largest deflection since the last drop, so a bounce that sags back a
+    // count or two per report still counts as moving back towards centre.
+    if (r + RISE_NOISE < stick.prev_r) {
+        stick.rise_from = timestamp;
+        stick.prev_r = static_cast<uint8_t>(r);
+    } else if (r > stick.prev_r) {
+        stick.prev_r = static_cast<uint8_t>(r);
+    }
     if (r >= PUSH_R && timestamp - stick.rise_from >= RISE_TICKS) return false;
 
     return true;
@@ -158,6 +164,7 @@ bool __not_in_flash_func(snapback_step)(SnapbackStick &stick, const uint8_t x, c
         // It may have bounced, so a steady push and settling start over.
         if (stick.holding) {
             stick.rise_from = timestamp;
+            stick.prev_r = static_cast<uint8_t>(r);
             stick.settling = false;
         }
     }
@@ -188,9 +195,10 @@ bool __not_in_flash_func(snapback_step)(SnapbackStick &stick, const uint8_t x, c
         // centre within one window, so it is judged against the push it
         // starts from, even when the stick jitters below its peak before it.
         // A stick eased back slowly is judged against where it is now.
-        // Both windows start over on a new push, and when both are older than
-        // the stick could take to release.
-        if (!stick.armed || along(stick, dx, dy) <= 0 || timestamp - stick.bucket_at > 2 * RELEASE_TICKS) {
+        // Both windows start over on a new push. A stick that stays below
+        // the arm point longer than the release window is disarmed, so they
+        // never grow older than two windows.
+        if (!stick.armed || along(stick, dx, dy) <= 0) {
             stick.bucket_max = stick.prev_bucket_max = static_cast<uint8_t>(r);
             stick.bucket_at = timestamp;
         } else if (timestamp - stick.bucket_at > RELEASE_TICKS) {

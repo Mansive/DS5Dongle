@@ -20,8 +20,9 @@ constexpr uint8_t SNAPBACK_ARM_PERCENT = 35;
 // two reports, so landing near centre is not required)...
 constexpr uint8_t SNAPBACK_ENTER_PERCENT = 15;
 // ...within this time of last being at SNAPBACK_ARM_PERCENT. The spring covers
-// that distance in a few ms, so this leaves room for a report every 4-8 ms. A
-// slower return is the player moving the stick, not the spring.
+// that distance in a few ms, so this leaves room for reports up to
+// SNAPBACK_GAP_MS apart. A slower return is the player moving the stick, not
+// the spring.
 constexpr uint32_t SNAPBACK_RELEASE_MS = 15;
 // A push of at least SNAPBACK_FULL_PERCENT gets the shorter window. The spring
 // covers 35% to 15% in 1-6 ms from there, so a slower return from a big push is
@@ -47,7 +48,9 @@ constexpr uint32_t SNAPBACK_SETTLE_MS = 8;
 // A deflection of at least SNAPBACK_PUSH_PERCENT that grows or stays put for
 // SNAPBACK_RISE_MS (a bounce turns around within a few ms, while a thumb that
 // moves the stick across centre stops and stays there). The time counts from
-// the last drop, including time spent below SNAPBACK_PUSH_PERCENT, so a stick
+// the last drop below the largest deflection since the drop before, so a slow
+// sag still counts as a drop. It includes time spent below
+// SNAPBACK_PUSH_PERCENT, so a stick
 // that rests a little off centre, outside the settle zone, passes through once
 // it reaches SNAPBACK_PUSH_PERCENT...
 constexpr uint32_t SNAPBACK_RISE_MS = 10;
@@ -74,7 +77,7 @@ struct SnapbackStick {
     bool holding = false;     // Reporting the stick at centre
     uint32_t hold_from = 0;   // Timestamp the hold started
     // While holding:
-    uint8_t prev_r = 0;       // Deflection in the previous report
+    uint8_t prev_r = 0;       // Largest deflection since it last dropped
     uint32_t rise_from = 0;   // Timestamp it last dropped or reports resumed
     bool settling = false;    // Within SNAPBACK_SETTLE_PERCENT of centre
     uint32_t settle_from = 0; // Timestamp it got there
