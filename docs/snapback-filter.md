@@ -107,11 +107,17 @@ All thresholds are fractions of full travel, measured from `0x80`. They are in
 1. **Armed.** The stick is at 35% or further. Its position and the furthest
    it reached are remembered. If it reaches the other side without passing
    centre, as during a report gap, the furthest point starts over, so it always
-   belongs to the push the stick is let go from. The furthest point also
-   follows the stick down when it is more than 15 ms old, since a release
-   reaches centre within that time. So a stick pushed all the way, eased back
+   belongs to the push the stick is let go from. The furthest point is also
+   only the largest deflection of the last 15–30 ms, kept as the larger of two
+   15 ms windows. A release reaches centre within 15 ms, so it is judged
+   against the push it starts from, even when the stick sits a count or two
+   below its first reading before it. A stick pushed all the way, eased back
    to 45% and let go from there is judged against 45%, not the full push. A
-   gap of more than 6 ms does not age it. Let go from 35–50%, the TMR stick still
+   gap of more than 6 ms does not age it. An earlier version kept only the
+   time of the furthest reading and replaced it after 15 ms. On a stick
+   jittering at full travel that time went stale, and the replacement was a
+   reading taken mid-release, so 6 recorded TMR overshoots counted as hard
+   pushes. Let go from 35–50%, the TMR stick still
    overshot by up to half that push, which is why the arm point is not higher.
 2. **Released.** Within 15 ms of last being armed, the stick's position along
    the remembered direction comes back to 15% or less. It does not have to land
