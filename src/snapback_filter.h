@@ -61,8 +61,10 @@ struct SnapbackStick {
     uint32_t armed_at = 0;    // Timestamp it was last there
     int16_t arm_x = 0;        // Where it was then, relative to centre
     int16_t arm_y = 0;
-    uint8_t peak_r = 0;       // Largest deflection of that push in the release window
-    uint32_t peak_at = 0;     // Timestamp it was last reached
+    uint8_t peak_r = 0;       // Largest deflection of that push in the last 15-30 ms
+    uint8_t bucket_max = 0;   // Largest deflection since bucket_at
+    uint8_t prev_bucket_max = 0; // Largest deflection in the window before that
+    uint32_t bucket_at = 0;   // Timestamp the current window started
     bool holding = false;     // Reporting the stick at centre
     uint32_t hold_from = 0;   // Timestamp the hold started
     // While holding:

@@ -139,6 +139,23 @@ static void test_peak_follows_slow_ease() {
     CHECK(!step(s, {58, -0.7, 0}, 30));
 }
 
+static void test_peak_kept_on_jittery_plateau() {
+    // Recorded right TMR stick diagonal release (bluetooth_500hz_diagonal_right
+    // #12). The stick sits at full travel a count or two below its first
+    // reading for 15 ms before the release. The peak stays that full push, so
+    // the 66% overshoot is held. A peak that aged to the mid-release reading
+    // let it through as a hard push.
+    const Sample s[] = {
+        {-17.63, 0.667, 0.855}, {-15.11, 0.667, 0.855}, {-13.54, 0.659, 0.855}, {-11.33, 0.659, 0.855},
+        {-10.07, 0.659, 0.855}, {-7.55, 0.659, 0.855},  {-5.04, 0.643, 0.855},  {-3.78, 0.635, 0.847},
+        {-1.26, 0.588, 0.800},  {0.00, 0.463, 0.643},   {2.52, 0.251, 0.369},   {5.04, -0.157, -0.212},
+        {6.30, -0.267, -0.400}, {8.81, -0.361, -0.557}, {10.07, -0.329, -0.533}, {12.59, -0.212, -0.345},
+        {15.11, 0.071, 0.110},  {16.37, 0.149, 0.227},  {18.89, 0.188, 0.267},  {20.15, 0.102, 0.125},
+        {22.66, -0.039, -0.071}, {25.18, -0.125, -0.149}, {26.44, -0.078, -0.086}, {28.96, 0.024, 0.039},
+    };
+    check_held_between(s, 65, 5);
+}
+
 static void test_peak_kept_across_dropout() {
     // Full push, then 20 ms without reports, and the first report back is
     // mid-release at 50%. The gap does not age the full push's peak, so the
@@ -377,6 +394,7 @@ int main() {
     test_settle_restarts_after_gap();
     test_peak_follows_slow_ease();
     test_peak_kept_across_dropout();
+    test_peak_kept_on_jittery_plateau();
     test_hard_push_escapes();
     test_peak_starts_over_on_other_side();
     test_jump_past_centre();

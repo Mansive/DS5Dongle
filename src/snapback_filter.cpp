@@ -151,7 +151,7 @@ bool __not_in_flash_func(snapback_step)(SnapbackStick &stick, const uint8_t x, c
         // release window and that release is still caught.
         if (stick.armed) {
             stick.armed_at += since_last;
-            stick.peak_at += since_last;
+            stick.bucket_at += since_last;
         }
         // It may have bounced, so a steady push and settling start over.
         if (stick.holding) {
@@ -180,13 +180,22 @@ bool __not_in_flash_func(snapback_step)(SnapbackStick &stick, const uint8_t x, c
         }
         // The peak belongs to the push on this side. Moving to the other side
         // without passing centre, as during a report gap, starts a new one.
-        // So does easing back slowly: a release reaches centre within the
-        // release window, so an older peak is not the push it starts from.
-        if (!stick.armed || along(stick, dx, dy) <= 0 || r >= stick.peak_r ||
-            timestamp - stick.peak_at > RELEASE_TICKS) {
-            stick.peak_r = static_cast<uint8_t>(r);
-            stick.peak_at = timestamp;
+        // It is the largest deflection of the last one to two release
+        // windows, kept as the maximum of two windows. A release reaches
+        // centre within one window, so it is judged against the push it
+        // starts from, even when the stick jitters below its peak before it.
+        // A stick eased back slowly is judged against where it is now.
+        if (!stick.armed || along(stick, dx, dy) <= 0) {
+            stick.bucket_max = stick.prev_bucket_max = static_cast<uint8_t>(r);
+            stick.bucket_at = timestamp;
+        } else if (timestamp - stick.bucket_at > RELEASE_TICKS) {
+            stick.prev_bucket_max = stick.bucket_max;
+            stick.bucket_max = static_cast<uint8_t>(r);
+            stick.bucket_at = timestamp;
+        } else if (r > stick.bucket_max) {
+            stick.bucket_max = static_cast<uint8_t>(r);
         }
+        stick.peak_r = stick.bucket_max > stick.prev_bucket_max ? stick.bucket_max : stick.prev_bucket_max;
         stick.armed = true;
         stick.armed_at = timestamp;
         stick.arm_x = static_cast<int16_t>(dx);
