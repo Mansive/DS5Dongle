@@ -23,13 +23,19 @@ constexpr uint8_t SNAPBACK_ENTER_PERCENT = 15;
 // that distance in a few ms, so this leaves room for a report every 4-8 ms. A
 // slower return is the player moving the stick, not the spring.
 constexpr uint32_t SNAPBACK_RELEASE_MS = 15;
+// A push of at least SNAPBACK_FULL_PERCENT gets the shorter window. The spring
+// covers 35% to 15% in 1-6 ms from there, so a slower return from a big push is
+// a thumb bringing the stick back.
+constexpr uint8_t SNAPBACK_FULL_PERCENT = 80;
+constexpr uint32_t SNAPBACK_RELEASE_FULL_MS = 10;
 // A gap of more than this between reports (a dropped link) does not count
 // toward SNAPBACK_RELEASE_MS, since the release may have happened inside it.
 constexpr uint32_t SNAPBACK_GAP_MS = 6;
 // While holding, a push past this percent of the release's push still goes
 // through at once. The first overshoot measured on stock and aftermarket sticks
-// stays below it.
-constexpr uint8_t SNAPBACK_ESCAPE_PERCENT = 80;
+// stays below it, at most 76% on a TMR stick. Recorded slams almost always end
+// their hold by the rules below first, so the margin costs nothing.
+constexpr uint8_t SNAPBACK_ESCAPE_PERCENT = 85;
 // The hold ends early once the stick has stayed within SNAPBACK_SETTLE_PERCENT
 // of centre for SNAPBACK_SETTLE_MS. A bounce swings through that zone faster
 // than that. The zone is small enough for the low deadzones used with TMR

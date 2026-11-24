@@ -20,7 +20,9 @@ constexpr int32_t ENTER_SQ = ENTER_R * ENTER_R;
 constexpr int32_t SIDEWAYS_SQ = SIDEWAYS_R * SIDEWAYS_R;
 // A deflection that drops by no more than this still counts as staying put.
 constexpr int32_t RISE_NOISE = 2;
+constexpr int32_t FULL_R = radius(SNAPBACK_FULL_PERCENT);
 constexpr uint32_t RELEASE_TICKS = SNAPBACK_RELEASE_MS * SNAPBACK_TICKS_PER_MS;
+constexpr uint32_t RELEASE_FULL_TICKS = SNAPBACK_RELEASE_FULL_MS * SNAPBACK_TICKS_PER_MS;
 constexpr uint32_t GAP_TICKS = SNAPBACK_GAP_MS * SNAPBACK_TICKS_PER_MS;
 constexpr uint32_t SETTLE_TICKS = SNAPBACK_SETTLE_MS * SNAPBACK_TICKS_PER_MS;
 constexpr uint32_t RISE_TICKS = SNAPBACK_RISE_MS * SNAPBACK_TICKS_PER_MS;
@@ -166,7 +168,8 @@ bool __not_in_flash_func(snapback_step)(SnapbackStick &stick, const uint8_t x, c
         stick.armed = false;
     }
 
-    if (stick.armed && timestamp - stick.armed_at > RELEASE_TICKS) {
+    const uint32_t window = stick.peak_r >= FULL_R ? RELEASE_FULL_TICKS : RELEASE_TICKS;
+    if (stick.armed && timestamp - stick.armed_at > window) {
         stick.armed = false;
     }
     if (r >= ARM_R) {
@@ -185,7 +188,9 @@ bool __not_in_flash_func(snapback_step)(SnapbackStick &stick, const uint8_t x, c
         // centre within one window, so it is judged against the push it
         // starts from, even when the stick jitters below its peak before it.
         // A stick eased back slowly is judged against where it is now.
-        if (!stick.armed || along(stick, dx, dy) <= 0) {
+        // Both windows start over on a new push, and when both are older than
+        // the stick could take to release.
+        if (!stick.armed || along(stick, dx, dy) <= 0 || timestamp - stick.bucket_at > 2 * RELEASE_TICKS) {
             stick.bucket_max = stick.prev_bucket_max = static_cast<uint8_t>(r);
             stick.bucket_at = timestamp;
         } else if (timestamp - stick.bucket_at > RELEASE_TICKS) {

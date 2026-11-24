@@ -80,6 +80,20 @@ static void test_slow_return_is_not_held() {
     }
 }
 
+static void test_big_push_window_is_shorter() {
+    // From a full push the spring covers 35% to 15% within 6 ms. A thumb that
+    // takes 14 ms is not held...
+    SnapbackStick s;
+    const Sample thumb[] = {{0, 1.0, 0},   {2, 0.8, 0},   {4, 0.6, 0},   {6, 0.45, 0},  {8, 0.36, 0},
+                            {10, 0.33, 0}, {12, 0.3, 0},  {14, 0.27, 0}, {16, 0.24, 0}, {18, 0.21, 0},
+                            {20, 0.18, 0}, {22, 0.14, 0}, {24, 0.10, 0}};
+    for (const auto &p : thumb) CHECK(!step(s, p, 30));
+    // ...while a return that slow from a 45% push still counts as a release.
+    const Sample partial[] = {{0, 0.45, 0},  {2, 0.4, 0},   {4, 0.36, 0},  {6, 0.33, 0},  {8, 0.28, 0},
+                              {10, 0.24, 0}, {12, 0.2, 0},  {14, 0.17, 0}, {16, 0.14, 0}, {18, 0.1, 0}};
+    check_held_between(partial, 30, 16);
+}
+
 static void test_small_flick_is_not_held() {
     // Never reaches 35%: no release to filter.
     SnapbackStick s;
@@ -191,11 +205,11 @@ static void test_overshoot_after_dropout() {
 
 static void test_peak_starts_over_on_other_side() {
     // Full push right, then reports stop while the thumb slams across, and
-    // the next one shows 85% left. That push is let go, and 72% right during
-    // the hold is past 80% of the 85% push, so it goes through. Judged
+    // the next one shows 85% left. That push is let go, and 75% right during
+    // the hold is past 85% of the 85% push, so it goes through. Judged
     // against the earlier full push it would have been held.
     const Sample s[] = {{0, 1.0, 0},    {2, 1.0, 0},     {20, -0.85, 0},
-                        {22, -0.85, 0}, {24, -0.3, 0},   {26, -0.05, 0}, {28, 0.72, 0}};
+                        {22, -0.85, 0}, {24, -0.3, 0},   {26, -0.05, 0}, {28, 0.75, 0}};
     check_held_between(s, 55, 26, 28);
 }
 
@@ -388,6 +402,7 @@ int main() {
     test_short_hold_ends_early();
     test_slow_return_is_not_held();
     test_small_flick_is_not_held();
+    test_big_push_window_is_shorter();
     test_partial_release_is_held();
     test_reversal_goes_through();
     test_rise_restarts_after_gap();
