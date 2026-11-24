@@ -124,8 +124,12 @@ All thresholds are fractions of full travel, measured from `0x80`. They are in
    near centre. The spring often carries it straight past centre between two
    reports. From a full push the spring covers this distance in 1–6 ms, and
    from a partial push usually within 10 ms, so a slower return is the player
-   moving the stick and is not held. A gap of more than 6 ms
-   between reports does not count toward the 15 ms. Over Bluetooth, reports
+   moving the stick and is not held. After a push of 80% or more the window
+   is 10 ms, since the spring is fast from there and a slower return is a
+   thumb. In the recorded deliberate moves this took the holds from 3 of 52
+   to 1 of 52 on the stock stick and from 9 of 55 to 6 of 55 on the TMR stick,
+   with no release missed. A gap of more than 6 ms
+   between reports does not count toward the window. Over Bluetooth, reports
    sometimes stop for 15–25 ms, and when that happens during a release the
    stick comes back already bouncing. A recorded release like that got past
    the filter before this rule.
@@ -133,7 +137,7 @@ All thresholds are fractions of full travel, measured from `0x80`. They are in
    A report gap can also hide the return entirely, so the next report shows
    the stick already 35% or more past centre on the other side. Straight after
    a push, that is the spring's overshoot, so it also counts as a release.
-   Only a push past 80% of the one before, or one 35% or more to the side,
+   Only a push past 85% of the one before, or one 35% or more to the side,
    counts as a new push there. A full flick from one side to the other passes,
    since it goes about as far as the push before.
 3. **Holding.** The stick is reported at centre until one of these happens.
@@ -146,10 +150,12 @@ All thresholds are fractions of full travel, measured from `0x80`. They are in
      potentiometer stick, never settles. If it rests at 5% or more, or jitters
      up to it, the steady push rule ends its hold. Otherwise it gets the full
      hold.
-   - **Hard push.** The stick is past 80% of the push it was let go from. The
+   - **Hard push.** The stick is past 85% of the push it was let go from. The
      first overshoot measured stays below that, at most 53% of the push on the
-     stock stick and 76% on the TMR stick, so the margin on a TMR stick is
-     small.
+     stock stick and 76% on the TMR stick. This rule used to start at 80%,
+     only 4% above the TMR stick. It ended the hold of just 3 of the 74
+     recorded slams, since the steady push and sideways rules end the rest
+     first, so the higher margin costs nothing measurable.
    - **Sideways.** The stick is 35% or more to the side of the line it was
      pushed along. Bounces stay on that line. Diagonal releases drifted up to
      16% to the side.
@@ -168,6 +174,15 @@ An earlier version also ended the hold when a swing was larger than the one
 before. On a recorded TMR stick, report gaps hid the overshoot peak, so the
 next, smaller swing looked larger and the bounce leaked. That rule is gone.
 The steady push rule still catches a player who pushes during the hold.
+
+Two more ideas were replayed against the recordings and dropped:
+- **Holding only the push direction after a sideways move.** It passes the
+  sideways move and keeps hiding the bounce. No recorded release leaked
+  sideways, and slams that hit the sideways rule were held up to 26 ms
+  instead of 10 ms.
+- **A steady push time taken from the measured spring speed.** It changed
+  nothing, since a thumb slam leaves the push slowly enough that the
+  adapted time came back to 10 ms.
 
 The host tests feed modelled releases through the filter, with the stock
 stick's 54% overshoot and the JS13's 72% overshoot and slower swing, sampled
@@ -201,5 +216,5 @@ This builds `tests/snapback_filter_test.cpp` with `g++` against
 
 - Test in a game with a known deadzone, with both sticks, including how quick
   direction changes feel.
-- Recordings from other sticks, to check the 80% hard push margin on TMR
+- Recordings from other sticks, to check the 85% hard push margin on TMR
   sticks that overshoot more than this one.
