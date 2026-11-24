@@ -62,6 +62,8 @@ void touchpad_mouse_task();
 void touchpad_mouse_reset();
 // The toggle shortcut: pauses or resumes the touchpad mouse (see TouchpadPause).
 void touchpad_mouse_toggle();
+// Mouse buttons the host was last told are down, for GET_REPORT.
+uint8_t touchpad_mouse_buttons();
 #else
 static inline bool touchpad_mouse_hides_touch() { return false; }
 static inline void touchpad_mouse_on_report(const USBGetStateData &) {}

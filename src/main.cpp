@@ -188,12 +188,24 @@ uint16_t tud_hid_get_report_cb(uint8_t itf, uint8_t report_id, hid_report_type_t
         return 0;
     }
     if (usb_keyboard_only) return 0;
+    if (itf == 2) {
+        // Consumer interface: no key held (ID 1), mouse at rest with the
+        // buttons the host last saw (ID 3). TinyUSB adds the report ID.
+        if (report_type != HID_REPORT_TYPE_INPUT) return 0;
+        if (report_id == 1 && reqlen >= 2) {
+            memset(buffer, 0, 2);
+            return 2;
+        }
+        if (report_id == 3 && reqlen >= 5) {
+            memset(buffer, 0, 5);
+            buffer[0] = touchpad_mouse_buttons();
+            return 5;
+        }
+        return 0;
+    }
 #endif
-    (void) itf;
-    (void) report_id;
     (void) report_type;
-    (void) buffer;
-    (void) reqlen;
+    if (itf != 0) return 0;
 
     if (is_pico_cmd(report_id)) {
         return pico_cmd_get(report_id, buffer, reqlen);
@@ -299,11 +311,9 @@ void tud_hid_set_report_cb(uint8_t itf, uint8_t report_id, hid_report_type_t rep
         return;
     }
 #endif
-    (void) itf;
-    (void) report_id;
-    (void) report_type;
-    (void) buffer;
-    (void) bufsize;
+    // Only the gamepad interface carries config commands, output reports
+    // and feature reports for the controller.
+    if (itf != 0) return;
 
     if (is_pico_cmd(report_id)) {
         // TinyUSB owns this buffer. USB printf() may re-enter tud_task() and reuse it,

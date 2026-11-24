@@ -136,6 +136,8 @@ void touchpad_mouse_toggle() {
     printf("[Touchpad] Mouse %s\n", toggle_pause.paused ? "off" : "on");
 }
 
+uint8_t touchpad_mouse_buttons() { return sent_buttons; }
+
 void touchpad_mouse_on_report(const USBGetStateData &state) {
     // Mouse buttons come from the remap tables (base and layers) on the
     // physical state, the same way the gamepad report gets its buttons.

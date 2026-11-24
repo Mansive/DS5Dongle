@@ -702,7 +702,14 @@ static void __not_in_flash_func(l2cap_packet_handler)(uint8_t packet_type, uint1
             if (size < 13 || !(packet[2] & 1) || get_config().inactive_time == 0) {
                 return;
             }
-            if (packet[3] < 120 || packet[3] > 140 ||
+            // A finger on the touchpad (packet[35] and [39] are the two
+            // fingers' NotTouching bits) also counts, so the touchpad mouse
+            // keeps the controller connected. Mic frames (bit 1 of packet[2])
+            // carry audio there instead.
+            const bool touching = size >= 40 && !(packet[2] & 0x02) &&
+                                  (!(packet[35] & 0x80) || !(packet[39] & 0x80));
+            if (touching ||
+                packet[3] < 120 || packet[3] > 140 ||
                 packet[4] < 120 || packet[4] > 140 ||
                 packet[5] < 120 || packet[5] > 140 ||
                 packet[6] < 120 || packet[6] > 140 ||

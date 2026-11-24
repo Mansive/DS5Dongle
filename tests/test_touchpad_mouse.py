@@ -49,7 +49,8 @@ class TouchpadToolTests(unittest.TestCase):
         cfg['haptics_gain'] = 1.0
         cfg['audio_buffer_length'] = 48
         packed = tool.pack_config(cfg)
-        self.assertEqual(packed[26:28], b'\x00\x00')
+        # touchpad_mouse and touchpad_sensitivity sit at offsets 25 and 26.
+        self.assertEqual(packed[25:27], b'\x00\x00')
 
     def test_mouse_targets(self):
         utils = (ROOT / 'src/button_utils.h').read_text(encoding='utf-8')
