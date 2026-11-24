@@ -38,8 +38,9 @@ locks every setting, leaving only **Reboot to Bootloader** available.
 
 The two bytes follow `touchpad_sensitivity` at the end of `Config_body`
 (offsets 27 and 28). Flash written by older firmware reads `0xFF` there, which
-is out of range and turns the filter off. Config tools that send a shorter body
-leave both settings unchanged.
+is out of range and turns the filter off. Older config tools do not know these
+two bytes. They pad the report with zeros, so saving from one of them turns the
+filter off for both sticks.
 
 ## Choosing the hold time
 
@@ -161,7 +162,14 @@ All thresholds are fractions of full travel, measured from `0x80`. They are in
      16% to the side.
    - **Steady push.** The stick is at 5% or more and has not moved back
      towards centre for 10 ms. The 10 ms count from the last move back,
-     including time spent below 5%. A bounce turns around within a few ms, while a
+     including time spent below 5%. A move back is a drop of more than 2 counts
+     below the furthest point since the last move back, so a bounce that sags
+     back a count per report still counts. Measured against only the report
+     before, as an earlier version did, that sag looked like a stick staying
+     put. Modelled bounces that leaked past 5% went from 37 to 13 of 2160, the
+     worst from 10% to 8.6%. In the recorded deliberate moves the stock stick's
+     longest hold went from 1.3 to 3.8 ms, and 8 of 55 TMR moves were held
+     instead of 6. A bounce turns around within a few ms, while a
      thumb that moves the stick across centre stops and stays there. A gap of
      more than 6 ms between reports starts the 10 ms over, since the stick may
      have bounced during it. This rule used to start at 25%, so a deliberate
@@ -192,6 +200,15 @@ Shortening the steady push time to 8 ms makes some of them leak at 4 ms
 sampling, so that value has only a small margin. The settle time would leak
 at 3 ms. The sideways rule is not covered by these models, since they bounce
 along a straight line.
+
+The 6 ms gap assumes reports normally come much faster. In the Bluetooth
+recordings the median interval was 2.52 ms and 0.24% of intervals were over
+6 ms, never more than 3 in a row. If a link ever settled at a steady 6–8 ms,
+every report would count as a gap. Releases would still be caught, but the
+steady push and settle times would keep starting over, so deliberate moves
+would be held much longer, a median of about 33 ms at 6.3 ms per report.
+Raising the gap to 8 ms would avoid that but let 29 of 228 recorded TMR
+releases leak past 5% at that rate, so it stays at 6 ms.
 
 Time comes from the controller's `SensorTimestamp` (units of 1/3 µs), so the
 hold does not depend on when Bluetooth packets arrive. The counter wraps every

@@ -60,6 +60,9 @@ Two-finger scrolling is not implemented.
   never leaves it paused. A sensitivity change keeps it paused. While paused,
   touches reach the game even in mode 2, so the toggle hands the touchpad back
   to the game. Mouse-button remaps keep working.
+- A finger on the touchpad counts as activity for the Bluetooth inactivity
+  timeout (`inactive_time`), so using only the touchpad mouse does not
+  disconnect the controller.
 
 ## USB
 
@@ -73,6 +76,10 @@ Two-finger scrolling is not implemented.
   bytes after the ID.
 - That interface now polls every **1 ms** instead of 10 ms, so the cursor
   moves smoothly.
+- A host GET_REPORT on this interface gets an idle report: no media key for
+  ID 1, and for ID 3 the buttons the host last saw with no movement. Other IDs
+  are stalled. GET and SET requests on it never reach the gamepad's config or
+  feature report handling, which only interface 0 serves.
 - The consumer interface is only enumerated when something needs it:
   `enable_keyboard`, a non-zero `touchpad_mouse`, or a remap (base or layer)
   that targets a mouse button. The keyboard interface comes with it, and also
